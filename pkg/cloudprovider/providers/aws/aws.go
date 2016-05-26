@@ -1539,19 +1539,24 @@ func isEqualStringPointer(l, r *string) bool {
 }
 
 func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupUserIDs bool) bool {
+	glog.Errorf("kevin# current instanceGroupPermission to compare to: %s", existing)
 	if !isEqualIntPointer(newPermission.FromPort, existing.FromPort) {
+		glog.Errorf("kevin20 FromPort not equal!")
 		return false
 	}
 	if !isEqualIntPointer(newPermission.ToPort, existing.ToPort) {
+		glog.Errorf("kevin21 ToPort not equal!")
 		return false
 	}
 	if !isEqualStringPointer(newPermission.IpProtocol, existing.IpProtocol) {
+		glog.Errorf("kevin22 IpProtocol not equal")
 		return false
 	}
 	// Check only if newPermission is a subset of existing. Usually it has zero or one elements.
 	// Not doing actual CIDR math yet; not clear it's needed, either.
 	glog.V(4).Infof("Comparing %v to %v", newPermission, existing)
 	if len(newPermission.IpRanges) > len(existing.IpRanges) {
+		glog.Errorf("kevin23 IpRanges of newPermission i greater!")
 		return false
 	}
 
@@ -1692,6 +1697,8 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 
 		found := false
 		for _, groupPermission := range group.IpPermissions {
+			glog.Errorf("Kevin18 groupPermissions: %s", groupPermission)
+			glog.Errorf("Kevin19 hasUserID: %s", hasUserID)
 			if ipPermissionExists(addPermission, groupPermission, hasUserID) {
 				found = true
 				break
@@ -2257,19 +2264,31 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
 		}
 
-		permissions := NewIPPermissionSet()
-		for _, port := range apiService.Spec.Ports {
-			portInt64 := int64(port.Port)
-			protocol := strings.ToLower(string(port.Protocol))
+		//permissions := NewIPPermissionSet()
+		//for _, port := range apiService.Spec.Ports {
+		//	portInt64 := int64(port.Port)
+		//	protocol := strings.ToLower(string(port.Protocol))
+		//
+		//	permission := &ec2.IpPermission{}
+		//	permission.FromPort = &portInt64
+		//	permission.ToPort = &portInt64
+		//	permission.IpRanges = ec2SourceRanges
+		//	permission.IpProtocol = &protocol
+		//
+		//	permissions.Insert(permission)
+		//}
 
-			permission := &ec2.IpPermission{}
-			permission.FromPort = &portInt64
-			permission.ToPort = &portInt64
-			permission.IpRanges = ec2SourceRanges
-			permission.IpProtocol = &protocol
+		// TODO#kevin: Open to every port that has this securityGroup attached
+		allProtocols := "-1"
+		fromPort := int64(-1)
+		toPort := int64(-1)
+		permission := &ec2.IpPermission{}
+		permission.IpProtocol = &allProtocols
+		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sharedSecurityGroupID}
+		permission.FromPort = &fromPort
+		permission.ToPort = &toPort
+		permissions := []*ec2.IpPermission{permission}
 
-			permissions.Insert(permission)
-		}
 
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
 		_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
@@ -2705,7 +2724,6 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 			return err
 		}
 	}
-
 	{
 		// Delete the security group(s) for the load balancer
 		// Note that this is annoying: the load balancer disappears from the API immediately, but it is still
@@ -2728,7 +2746,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 				continue
 			}
 			// TODO#kevin: we shouldn't try to delete ssgID
-			if securityGroupID == ssgID {
+			if *securityGroupID == ssgID {
 				glog.Errorf("kevin-20 yay! skipping ssgID")
 				continue
 			}
