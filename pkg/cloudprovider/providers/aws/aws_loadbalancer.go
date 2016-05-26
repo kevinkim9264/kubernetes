@@ -31,6 +31,7 @@ import (
 func (s *AWSCloud) ensureLoadBalancer(namespacedName types.NamespacedName, loadBalancerName string, listeners []*elb.Listener, subnetIDs []string, securityGroupIDs []string, internalELB bool) (*elb.LoadBalancerDescription, error) {
 	loadBalancer, err := s.describeLoadBalancer(loadBalancerName)
 	if err != nil {
+		glog.Errorf("kevin-9 failed to describe load balancer!")
 		return nil, err
 	}
 
@@ -56,10 +57,11 @@ func (s *AWSCloud) ensureLoadBalancer(namespacedName types.NamespacedName, loadB
 			{Key: aws.String(TagNameKubernetesCluster), Value: aws.String(s.getClusterName())},
 			{Key: aws.String(TagNameKubernetesService), Value: aws.String(namespacedName.String())},
 		}
-
+		glog.Errorf("kevin-10 we are creating loadbalancer for %v with name: ", namespacedName, loadBalancerName)
 		glog.Infof("Creating load balancer for %v with name: ", namespacedName, loadBalancerName)
 		_, err := s.elb.CreateLoadBalancer(createRequest)
 		if err != nil {
+			glog.Errorf("kevin-11, failed right before creating ...")
 			return nil, err
 		}
 		dirty = true
@@ -194,11 +196,12 @@ func (s *AWSCloud) ensureLoadBalancer(namespacedName types.NamespacedName, loadB
 	if dirty {
 		loadBalancer, err = s.describeLoadBalancer(loadBalancerName)
 		if err != nil {
+			glog.Errorf("kevin-11 another describe loadbalancer failure")
 			glog.Warning("Unable to retrieve load balancer after creation/update")
 			return nil, err
 		}
 	}
-
+	glog.Errorf("kevin-12 we return loadbalancer, however!!")
 	return loadBalancer, nil
 }
 
@@ -251,7 +254,7 @@ func (s *AWSCloud) ensureLoadBalancerHealthCheck(loadBalancer *elb.LoadBalancerD
 	if err != nil {
 		return fmt.Errorf("error configuring load-balancer health-check: %v", err)
 	}
-
+	glog.Errorf("kevin-13 Health check passed!!!")
 	return nil
 }
 
@@ -290,6 +293,7 @@ func (s *AWSCloud) ensureLoadBalancerInstances(loadBalancerName string, lbInstan
 		registerRequest.LoadBalancerName = aws.String(loadBalancerName)
 		_, err := s.elb.RegisterInstancesWithLoadBalancer(registerRequest)
 		if err != nil {
+			glog.Errorf("kevin-14 no way hahaha")
 			return err
 		}
 		glog.V(1).Infof("Instances added to load-balancer %s", loadBalancerName)
@@ -301,6 +305,7 @@ func (s *AWSCloud) ensureLoadBalancerInstances(loadBalancerName string, lbInstan
 		deregisterRequest.LoadBalancerName = aws.String(loadBalancerName)
 		_, err := s.elb.DeregisterInstancesFromLoadBalancer(deregisterRequest)
 		if err != nil {
+			glog.Errorf("kevin-15 can't be possible")
 			return err
 		}
 		glog.V(1).Infof("Instances removed from load-balancer %s", loadBalancerName)
