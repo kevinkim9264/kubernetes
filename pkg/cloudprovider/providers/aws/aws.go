@@ -2279,16 +2279,20 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		//}
 
 		// TODO#kevin: Open to every port that has this securityGroup attached
+		permissions := NewIPPermissionSet()
+
+		sourceGroupId := &ec2.UserIdGroupPair{}
+		sourceGroupId.GroupId = &sharedSecurityGroupID
+
 		allProtocols := "-1"
 		fromPort := int64(-1)
 		toPort := int64(-1)
 		permission := &ec2.IpPermission{}
 		permission.IpProtocol = &allProtocols
-		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sharedSecurityGroupID}
+		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
-		permissions := []*ec2.IpPermission{permission}
-
+		permissions.Insert(permission)
 
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
 		_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
