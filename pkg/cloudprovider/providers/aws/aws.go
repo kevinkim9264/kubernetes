@@ -2605,7 +2605,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
 
-		permissions := []*ec2.IpPermission{permission}
+		//permissions := []*ec2.IpPermission{permission}
 
 		if add {
 			// TODO#kevin: we use addSharedSecurityGroupIngree instead.
@@ -2615,7 +2615,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 				return err
 			}
 			if !changed {
-				glog.Warning("Allowing ingress was not needed; concurrent change? groupId=", instanceSecurityGroupId)
+				glog.Warning("shared security group id already in instance's security group!")
 			}
 		}
 	}
