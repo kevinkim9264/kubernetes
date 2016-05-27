@@ -2680,7 +2680,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
 func (s *AWSCloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, allInstances []*ec2.Instance) error {
 	// TODO:# hard coded to override user's flag for debugging purpose: currently set to true in databricks-dev
-	s.cfg.Global.DisableSecurityGroupIngress = true
+	//s.cfg.Global.DisableSecurityGroupIngress = true
 
 	if s.cfg.Global.DisableSecurityGroupIngress {
 		return nil
