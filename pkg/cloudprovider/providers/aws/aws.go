@@ -1588,6 +1588,7 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 
 // TODO#kevin: meant to be used only for checking if sharedSecurityGroup's source group is already in instance's
 // security group rule's source group.
+// Check if newPermission's GroupId is in one of IpPermission's GroupIds
 func sameGroupIdExists(newPermission, existing *ec2.IpPermission) bool {
 	// TODO#kevin Actually newPermission.UserIdGroupPairs[0] is just as fine, but this is to follow the existing code style
 	for _, leftPair := range newPermission.UserIdGroupPairs {
@@ -1746,9 +1747,9 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 }
 
 
-// TODO#kevin: This function is used for setting SSG's rule, and also adding SSG's rule into instance's security group rule.
-// Makes sure the if and only if changes were made
-// The security group must already exist
+// TODO#kevin: This function is used for setting SSG's rule, or adding SSG's rule into instance's security group rule.
+// Add addPermission rule into securityGroupId's securityGroup.
+// If addPermission's GroupID is already in securityGroupId's security group's rule, we don't add it.
 func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPermission *ec2.IpPermission) (bool, error) {
 	group, err := s.findSecurityGroup(securityGroupId)
 	if err != nil {
@@ -1782,9 +1783,8 @@ func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPerm
 	if err != nil {
 		// TODO#kevin: for testing (silently suppressing error)
 		glog.Errorf("Kevin9 Are we really here??")
-		return false, nil
-		//glog.Warning("Error authorizing security group ingress", err)
-		//return false, fmt.Errorf("error authorizing security group ingress: %v", err)
+		glog.Warning("Error authorizing security group ingress", err)
+		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
 	}
 
 	return true, nil
@@ -2320,10 +2320,10 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			return nil, err
 		}
 
-		ec2SourceRanges := []*ec2.IpRange{}
-		for _, sourceRange := range sourceRanges.StringSlice() {
-			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
-		}
+		//ec2SourceRanges := []*ec2.IpRange{}
+		//for _, sourceRange := range sourceRanges.StringSlice() {
+		//	ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
+		//}
 
 		//permissions := NewIPPermissionSet()
 		//for _, port := range apiService.Spec.Ports {
@@ -2616,14 +2616,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 			}
 			if !changed {
 				glog.Warning("Allowing ingress was not needed; concurrent change? groupId=", instanceSecurityGroupId)
-			}
-		} else {
-			changed, err := s.removeSecurityGroupIngress(instanceSecurityGroupId, permissions)
-			if err != nil {
-				return err
-			}
-			if !changed {
-				glog.Warning("Revoking ingress was not needed; concurrent change? groupId=", instanceSecurityGroupId)
 			}
 		}
 	}
