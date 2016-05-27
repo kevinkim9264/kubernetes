@@ -2320,24 +2320,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			return nil, err
 		}
 
-		//ec2SourceRanges := []*ec2.IpRange{}
-		//for _, sourceRange := range sourceRanges.StringSlice() {
-		//	ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
-		//}
-
-		//permissions := NewIPPermissionSet()
-		//for _, port := range apiService.Spec.Ports {
-		//	portInt64 := int64(port.Port)
-		//	protocol := strings.ToLower(string(port.Protocol))
-		//
-		//	permission := &ec2.IpPermission{}
-		//	permission.FromPort = &portInt64
-		//	permission.ToPort = &portInt64
-		//	permission.IpRanges = ec2SourceRanges
-		//	permission.IpProtocol = &protocol
-		//
-		//	permissions.Insert(permission)
-		//}
 
 		// TODO#kevin: Open to every port that has this securityGroup attached
 		//permissions := NewIPPermissionSet()
@@ -2763,6 +2745,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 	}
 
 	{
+		glog.Errorf("#kevin30 we are passing by here. ")
 		// De-authorize the load balancer security group from the instances security group
 		err = s.updateInstanceSecurityGroupsForLoadBalancer(lb, nil)
 		if err != nil {
@@ -2775,7 +2758,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		// Delete the load balancer itself
 		request := &elb.DeleteLoadBalancerInput{}
 		request.LoadBalancerName = lb.LoadBalancerName
-
+		glog.Errorf("are we calling DeleteLoadBalancer?")
 		_, err = s.elb.DeleteLoadBalancer(request)
 		if err != nil {
 			glog.Errorf("kevin-17 failed at deleting load balancer!!?")

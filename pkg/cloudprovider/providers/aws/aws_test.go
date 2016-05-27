@@ -1172,7 +1172,7 @@ func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	awsServices := NewFakeAWSServices()
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
-
+	glog.Errorf("Right before calling c.EnsureLoadBalancerDeleted")
 	c.EnsureLoadBalancerDeleted(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}})
 }
 
