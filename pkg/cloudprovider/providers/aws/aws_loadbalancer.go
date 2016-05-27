@@ -107,6 +107,7 @@ func (s *AWSCloud) ensureLoadBalancer(namespacedName types.NamespacedName, loadB
 			actual := stringSetFromPointers(loadBalancer.SecurityGroups)
 
 			if !expected.Equal(actual) {
+				glog.Errorf("kevin31 Are we applying securitygroups to loadbanacer?")
 				// This call just replaces the security groups, unlike e.g. subnets (!)
 				request := &elb.ApplySecurityGroupsToLoadBalancerInput{}
 				request.LoadBalancerName = aws.String(loadBalancerName)

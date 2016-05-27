@@ -1689,6 +1689,53 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 	return true, nil
 }
 
+// TODO#kevin: This function is used for setting SSG's rule.
+// Add addPermission rule into securityGroupId's securityGroup.
+// If addPermission's GroupID is already in securityGroupId's security group's rule, we don't add it.
+func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permissions IPPermissionSet) (bool, error) {
+	group, err := s.findSecurityGroup(securityGroupId)
+	if err != nil {
+		glog.Warningf("Error retrieving security group: %v", err)
+		return false, err
+	}
+
+	if group == nil {
+		return false, fmt.Errorf("security group not found: %s", securityGroupId)
+	}
+
+	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
+
+	//changes := []*ec2.IpPermission{}
+	glog.Errorf("Kevin7 permission to add: %v", permissions)
+
+	for _, groupPermission := range group.IpPermissions {
+		for _, newPermission := range permissions {
+			if sameGroupIdExists(newPermission, groupPermission) {
+				glog.Errorf("Kevin88 yay!!!!! We don't have to set permission to ssg")
+				return false, nil
+			}
+		}
+	}
+
+	// TODO#kevin: since the security group doesn't have the rule yet, we should set the rule to instance's rule
+
+
+
+	//changes = append(changes, addPermission)
+
+	request := &ec2.AuthorizeSecurityGroupIngressInput{}
+	request.GroupId = &securityGroupId
+	request.IpPermissions = permissions.Ungroup().List()
+	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
+	if err != nil {
+		glog.Errorf("Kevin99 Are we really here?? It must be first time setting the rule for ssg")
+		glog.Warning("Error authorizing security group ingress", err)
+		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
+	}
+
+	return true, nil
+}
+
 
 // Makes sure the security group includes the specified permissions
 // Returns true if and only if changes were made
@@ -2322,24 +2369,49 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 
 
 		// TODO#kevin: Open to every port that has this securityGroup attached
-		//permissions := NewIPPermissionSet()
+		ec2SourceRanges := []*ec2.IpRange{}
+		for _, sourceRange := range sourceRanges.StringSlice() {
+			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
+		}
 
-		sourceGroupId := &ec2.UserIdGroupPair{}
-		sourceGroupId.GroupId = &sharedSecurityGroupID
+		permissions := NewIPPermissionSet()
+		for _, port := range apiService.Spec.Ports {
+			portInt64 := int64(port.Port)
+			protocol := strings.ToLower(string(port.Protocol))
 
-		allProtocols := "-1"
-		fromPort := int64(-1)
-		toPort := int64(-1)
-		permission := &ec2.IpPermission{}
-		permission.IpProtocol = &allProtocols
-		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
-		permission.FromPort = &fromPort
-		permission.ToPort = &toPort
+			sourceGroupId := &ec2.UserIdGroupPair{}
+			sourceGroupId.GroupId = &sharedSecurityGroupID
+
+			permission := &ec2.IpPermission{}
+			permission.FromPort = &portInt64
+			permission.ToPort = &portInt64
+			permission.IpRanges = ec2SourceRanges
+			permission.IpProtocol = &protocol
+			permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
+
+			permissions.Insert(permission)
+		}
+
+		////////////
+
+		//sourceGroupId := &ec2.UserIdGroupPair{}
+		//sourceGroupId.GroupId = &sharedSecurityGroupID
+		//
+		//allProtocols := "-1"
+		//fromPort := int64(-1)
+		//toPort := int64(-1)
+		//permission := &ec2.IpPermission{}
+		//permission.IpProtocol = &allProtocols
+		//permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
+		//permission.FromPort = &fromPort
+		//permission.ToPort = &toPort
 		//permissions.Insert(permission)
+
+
 		glog.Errorf("kevin-5.8 now we try to add the permission(rule) to the ssg.")
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
 		//_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
-		_, err = s.addSharedSecurityGroupIngress(sharedSecurityGroupID, permission)
+		_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		if err != nil {
 			glog.Errorf("kevin-5.9: here is the bug!")
 			return nil, err
