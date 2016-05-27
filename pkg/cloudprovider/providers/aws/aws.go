@@ -1569,7 +1569,6 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 			}
 		}
 		if found == false {
-			glog.Errorf("kevin24 here.....")
 			return false
 		}
 	}
@@ -1579,27 +1578,10 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 				return true
 			}
 		}
-		glog.Errorf("kevin25 no way...")
 		return false
 	}
 
 	return true
-}
-
-// TODO#kevin: meant to be used only for checking if sharedSecurityGroup's source group is already in instance's
-// security group rule's source group.
-func sameGroupIdExists(newPermission, existing *ec2.IpPermission) bool {
-	// TODO#kevin Actually newPermission.UserIdGroupPairs[0] is just as fine, but this is to follow the existing code style
-	for _, leftPair := range newPermission.UserIdGroupPairs {
-		for _, rightPair := range existing.UserIdGroupPairs {
-			if isEqualStringPointer(leftPair.GroupId, rightPair.GroupId) {
-				return true
-			}
-		}
-	}
-	glog.Errorf("Kevin222  newPermission: %v  vs  existingPermission: %v", newPermission, existing)
-	return false
-
 }
 
 func isEqualUserGroupPair(l, r *ec2.UserIdGroupPair, compareGroupUserIDs bool) bool {
@@ -1650,7 +1632,6 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 	remove := actual.Difference(permissions)
 	add := permissions.Difference(actual)
 
-
 	if add.Len() == 0 && remove.Len() == 0 {
 		return false, nil
 	}
@@ -1688,7 +1669,6 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 	return true, nil
 }
 
-
 // Makes sure the security group includes the specified permissions
 // Returns true if and only if changes were made
 // The security group must already exist
@@ -1706,6 +1686,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
 
 	changes := []*ec2.IpPermission{}
+	glog.Errorf("Kevin7 permissions to add: %v", addPermissions)
 	for _, addPermission := range addPermissions {
 		hasUserID := false
 		for i := range addPermission.UserIdGroupPairs {
@@ -1716,6 +1697,8 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 
 		found := false
 		for _, groupPermission := range group.IpPermissions {
+			glog.Errorf("Kevin18 groupPermissions: %s", groupPermission)
+			glog.Errorf("Kevin19 hasUserID: %s", hasUserID)
 			if ipPermissionExists(addPermission, groupPermission, hasUserID) {
 				found = true
 				break
@@ -1723,6 +1706,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 		}
 
 		if !found {
+			glog.Errorf("Kevin8 appending  %s", addPermission)
 			changes = append(changes, addPermission)
 		}
 	}
@@ -1738,49 +1722,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	request.IpPermissions = changes
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
 	if err != nil {
-		glog.Warning("Error authorizing security group ingress", err)
-		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
-	}
-
-	return true, nil
-}
-
-
-// TODO#kevin: This function is used for setting SSG's rule, and also adding SSG's rule into instance's security group rule.
-// Makes sure the if and only if changes were made
-// The security group must already exist
-func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPermission *ec2.IpPermission) (bool, error) {
-	group, err := s.findSecurityGroup(securityGroupId)
-	if err != nil {
-		glog.Warningf("Error retrieving security group: %v", err)
-		return false, err
-	}
-
-	if group == nil {
-		return false, fmt.Errorf("security group not found: %s", securityGroupId)
-	}
-
-	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
-
-	changes := []*ec2.IpPermission{}
-	glog.Errorf("Kevin7 permission to add: %v", addPermission)
-
-	for _, groupPermission := range group.IpPermissions {
-		if sameGroupIdExists(addPermission, groupPermission) {
-			glog.Errorf("Kevin8 yay!!!!! sameGroupIdExists worked!")
-			return false, nil
-		}
-	}
-
-	// TODO#kevin: since the security group doesn't have the rule yet, we should add the rule to instance's rule
-	changes = append(changes, addPermission)
-
-	request := &ec2.AuthorizeSecurityGroupIngressInput{}
-	request.GroupId = &securityGroupId
-	request.IpPermissions = changes
-	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
-	if err != nil {
-		// TODO#kevin: for testing (silently suppressing error)
+		// TODO#kevin: for testing
 		glog.Errorf("Kevin9 Are we really here??")
 		return false, nil
 		//glog.Warning("Error authorizing security group ingress", err)
@@ -2231,7 +2173,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	if err != nil {
 		return nil, err
 	}
-	//glog.Errorf("kevin-4 instances extracted from hosts: %v", instances)
+	glog.Errorf("kevin-4 instances extracted from hosts: %v", instances)
 
 	sourceRanges, err := service.GetLoadBalancerSourceRanges(annotations)
 	if err != nil {
@@ -2304,8 +2246,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		}
 	}
 
-	glog.Errorf("kevin-5.5  starting to make SSGID")
-
 	// TODO#kevin: Create the shared security group ID for local reference. (actually create one if doesn't exist)
 	var sharedSecurityGroupID string
 	{
@@ -2314,7 +2254,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
 		// Returns corresponding securityGroupID if exists. If not, it creates a securityGroup and returns ID.
 		sharedSecurityGroupID, err = s.ensureSecurityGroup(sgName, sgDescription)
-		glog.Errorf("kevin-5.52 At least created ssgID")
 		if err != nil {
 			glog.Error("Error creating load balancer security group: ", err)
 			return nil, err
@@ -2340,7 +2279,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		//}
 
 		// TODO#kevin: Open to every port that has this securityGroup attached
-		//permissions := NewIPPermissionSet()
+		permissions := NewIPPermissionSet()
 
 		sourceGroupId := &ec2.UserIdGroupPair{}
 		sourceGroupId.GroupId = &sharedSecurityGroupID
@@ -2353,13 +2292,11 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
-		//permissions.Insert(permission)
-		glog.Errorf("kevin-5.8 now we try to add the permission(rule) to the ssg.")
+		permissions.Insert(permission)
+
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
-		//_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
-		_, err = s.addSharedSecurityGroupIngress(sharedSecurityGroupID, permission)
+		_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		if err != nil {
-			glog.Errorf("kevin-5.9: here is the bug!")
 			return nil, err
 		}
 	}
@@ -2608,9 +2545,8 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permissions := []*ec2.IpPermission{permission}
 
 		if add {
-			// TODO#kevin: we use addSharedSecurityGroupIngree instead.
 			glog.Errorf("Kevin6 we are adding ssg to %s: instanceSecurityGroupId", instanceSecurityGroupId)
-			changed, err := s.addSharedSecurityGroupIngress(instanceSecurityGroupId, permission)
+			changed, err := s.addSecurityGroupIngress(instanceSecurityGroupId, permissions)
 			if err != nil {
 				return err
 			}
