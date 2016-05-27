@@ -2715,9 +2715,9 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		securityGroupIDs := map[string]struct{}{}
 
 		// TODO#kevin: shared securitygroup ID for reference
-		//sgName := "k8s-elb-" + s.getClusterName()
-		//sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
-		//ssgID, err := s.ensureSecurityGroup(sgName, sgDescription)
+		sgName := "k8s-elb-" + s.getClusterName()
+		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
+		ssgID, err := s.ensureSecurityGroup(sgName, sgDescription)
 		if err != nil {
 			glog.Errorf("kevin-18 error in ensureing shared security group and getting ssgID")
 		}
@@ -2728,11 +2728,11 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 				continue
 			}
 			// TODO#kevin: we shouldn't try to delete ssgID
-			//if *securityGroupID == ssgID {
-			//	glog.Errorf("kevin-20 yay! skipping ssgID")
-			//	continue
-			//}
-			//securityGroupIDs[*securityGroupID] = struct{}{}
+			if *securityGroupID == ssgID {
+				glog.Errorf("kevin-20 yay! skipping ssgID")
+				continue
+			}
+			securityGroupIDs[*securityGroupID] = struct{}{}
 		}
 
 		// Loop through and try to delete them
