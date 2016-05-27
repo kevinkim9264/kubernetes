@@ -2728,7 +2728,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 				continue
 			}
 			// TODO#kevin: we shouldn't try to delete ssgID
-			if securityGroupID == ssgID {
+			if *securityGroupID == ssgID {
 				glog.Errorf("kevin-20 yay! skipping ssgID")
 				continue
 			}
