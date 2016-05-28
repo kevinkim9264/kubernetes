@@ -249,21 +249,21 @@ var _ Volumes = &AWSCloud{}
 
 type AWSCloudConfig struct {
 	Global struct {
-		// TODO: Is there any use for this?  We can get it from the instance metadata service
-		// Maybe if we're not running on AWS, e.g. bootstrap; for now it is not very useful
-		Zone string
+		       // TODO: Is there any use for this?  We can get it from the instance metadata service
+		       // Maybe if we're not running on AWS, e.g. bootstrap; for now it is not very useful
+		       Zone string
 
-		KubernetesClusterTag string
+		       KubernetesClusterTag string
 
-		//The aws provider creates an inbound rule per load balancer on the node security
-		//group. However, this can run into the AWS security group rule limit of 50 if
-		//many LoadBalancers are created.
-		//
-		//This flag disables the automatic ingress creation. It requires that the user
-		//has setup a rule that allows inbound traffic on kubelet ports from the
-		//local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
-		DisableSecurityGroupIngress bool
-	}
+		       //The aws provider creates an inbound rule per load balancer on the node security
+		       //group. However, this can run into the AWS security group rule limit of 50 if
+		       //many LoadBalancers are created.
+		       //
+		       //This flag disables the automatic ingress creation. It requires that the user
+		       //has setup a rule that allows inbound traffic on kubelet ports from the
+		       //local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
+		       DisableSecurityGroupIngress bool
+	       }
 }
 
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
@@ -1539,24 +1539,19 @@ func isEqualStringPointer(l, r *string) bool {
 }
 
 func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupUserIDs bool) bool {
-	glog.Errorf("kevin# current instanceGroupPermission to compare to: %s", existing)
 	if !isEqualIntPointer(newPermission.FromPort, existing.FromPort) {
-		glog.Errorf("kevin20 FromPort not equal!")
 		return false
 	}
 	if !isEqualIntPointer(newPermission.ToPort, existing.ToPort) {
-		glog.Errorf("kevin21 ToPort not equal!")
 		return false
 	}
 	if !isEqualStringPointer(newPermission.IpProtocol, existing.IpProtocol) {
-		glog.Errorf("kevin22 IpProtocol not equal")
 		return false
 	}
 	// Check only if newPermission is a subset of existing. Usually it has zero or one elements.
 	// Not doing actual CIDR math yet; not clear it's needed, either.
 	glog.V(4).Infof("Comparing %v to %v", newPermission, existing)
 	if len(newPermission.IpRanges) > len(existing.IpRanges) {
-		glog.Errorf("kevin23 IpRanges of newPermission i greater!")
 		return false
 	}
 
@@ -1569,7 +1564,6 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 			}
 		}
 		if found == false {
-			glog.Errorf("kevin24 here.....")
 			return false
 		}
 	}
@@ -1579,7 +1573,6 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 				return true
 			}
 		}
-		glog.Errorf("kevin25 no way...")
 		return false
 	}
 
@@ -1598,7 +1591,6 @@ func sameGroupIdExists(newPermission, existing *ec2.IpPermission) bool {
 			}
 		}
 	}
-	glog.Errorf("Kevin222  newPermission: %v  vs  existingPermission: %v", newPermission, existing)
 	return false
 
 }
@@ -1705,13 +1697,9 @@ func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permiss
 
 	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
 
-	//changes := []*ec2.IpPermission{}
-	glog.Errorf("Kevin7 permission to add: %v", permissions)
-
 	for _, groupPermission := range group.IpPermissions {
 		for _, newPermission := range permissions {
 			if sameGroupIdExists(newPermission, groupPermission) {
-				glog.Errorf("Kevin88 yay!!!!! We don't have to set permission to ssg")
 				return false, nil
 			}
 		}
@@ -1728,7 +1716,6 @@ func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permiss
 	request.IpPermissions = permissions.Ungroup().List()
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
 	if err != nil {
-		glog.Errorf("Kevin99 Are we really here?? It must be first time setting the rule for ssg")
 		glog.Warning("Error authorizing security group ingress", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
 	}
@@ -1811,11 +1798,8 @@ func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPerm
 	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
 
 	changes := []*ec2.IpPermission{}
-	glog.Errorf("Kevin7 permission to add: %v", addPermission)
-
 	for _, groupPermission := range group.IpPermissions {
 		if sameGroupIdExists(addPermission, groupPermission) {
-			glog.Errorf("Kevin8 yay!!!!! sameGroupIdExists worked!")
 			return false, nil
 		}
 	}
@@ -1829,7 +1813,6 @@ func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPerm
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
 	if err != nil {
 		// TODO#kevin: for testing (silently suppressing error)
-		glog.Errorf("Kevin9 Are we really here??")
 		glog.Warning("Error authorizing security group ingress", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
 	}
@@ -2240,8 +2223,6 @@ func buildListener(port api.ServicePort, annotations map[string]string) (*elb.Li
 func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, annotations map[string]string) (*api.LoadBalancerStatus, error) {
 	glog.V(2).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v)",
 		apiService.Namespace, apiService.Name, s.region, apiService.Spec.LoadBalancerIP, apiService.Spec.Ports, hosts, annotations)
-	glog.Errorf("kevin-1 EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v)",
-		apiService.Namespace, apiService.Name, s.region, apiService.Spec.LoadBalancerIP, apiService.Spec.Ports, hosts, annotations)
 	if apiService.Spec.SessionAffinity != api.ServiceAffinityNone {
 		// ELB supports sticky sessions, but only when configured for HTTP/HTTPS
 		return nil, fmt.Errorf("unsupported load balancer affinity: %v", apiService.Spec.SessionAffinity)
@@ -2255,7 +2236,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	listeners := []*elb.Listener{}
 	for _, port := range apiService.Spec.Ports {
 		if port.Protocol != api.ProtocolTCP {
-			glog.Errorf("kevin-2")
 			return nil, fmt.Errorf("Only TCP LoadBalancer is supported for AWS ELB")
 		}
 		if port.NodePort == 0 {
@@ -2268,9 +2248,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		}
 		listeners = append(listeners, listener)
 	}
-	glog.Errorf("kevin-3")
 	if apiService.Spec.LoadBalancerIP != "" {
-		glog.Errorf("kevin-4")
 		return nil, fmt.Errorf("LoadBalancerIP cannot be specified for AWS ELB")
 	}
 
@@ -2278,7 +2256,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	if err != nil {
 		return nil, err
 	}
-	//glog.Errorf("kevin-4 instances extracted from hosts: %v", instances)
 
 	sourceRanges, err := service.GetLoadBalancerSourceRanges(annotations)
 	if err != nil {
@@ -2299,7 +2276,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		internalELB = true
 	}
 
-	glog.Errorf("kevin-5")
 
 	// Find the subnets that the ELB will live in
 	subnetIDs, err := s.findELBSubnets(internalELB)
@@ -2351,7 +2327,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		}
 	}
 
-	glog.Errorf("kevin-5.5  starting to make SSGID")
 
 	// TODO#kevin: Create the shared security group ID for local reference. (actually create one if doesn't exist)
 	var sharedSecurityGroupID string
@@ -2361,7 +2336,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
 		// Returns corresponding securityGroupID if exists. If not, it creates a securityGroup and returns ID.
 		sharedSecurityGroupID, err = s.ensureSecurityGroup(sgName, sgDescription)
-		glog.Errorf("kevin-5.52 At least created ssgID")
 		if err != nil {
 			glog.Error("Error creating load balancer security group: ", err)
 			return nil, err
@@ -2392,33 +2366,14 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			permissions.Insert(permission)
 		}
 
-		////////////
-
-		//sourceGroupId := &ec2.UserIdGroupPair{}
-		//sourceGroupId.GroupId = &sharedSecurityGroupID
-		//
-		//allProtocols := "-1"
-		//fromPort := int64(-1)
-		//toPort := int64(-1)
-		//permission := &ec2.IpPermission{}
-		//permission.IpProtocol = &allProtocols
-		//permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
-		//permission.FromPort = &fromPort
-		//permission.ToPort = &toPort
-		//permissions.Insert(permission)
-
-
-		glog.Errorf("kevin-5.8 now we try to add the permission(rule) to the ssg.")
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
 		//_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		if err != nil {
-			glog.Errorf("kevin-5.9: here is the bug!")
 			return nil, err
 		}
 	}
 
-	glog.Errorf("kevin-6")
 
 	// TODO#kevin: Should add the shared securityGroupID too.
 	securityGroupIDs := []string{securityGroupID, sharedSecurityGroupID}
@@ -2426,13 +2381,11 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	// Build the load balancer itself
 	loadBalancer, err := s.ensureLoadBalancer(serviceName, loadBalancerName, listeners, subnetIDs, securityGroupIDs, internalELB)
 	if err != nil {
-		glog.Errorf("kevin-7  failed to make load balancer!!! This is serious haha")
 		return nil, err
 	}
 
 	err = s.ensureLoadBalancerHealthCheck(loadBalancer, listeners)
 	if err != nil {
-		glog.Errorf("kevin-8 failed to pass HealthCheck??!?!")
 		return nil, err
 	}
 
@@ -2449,7 +2402,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	// TODO#kevin: Implement the function that add sharedSecurityGroupID into instances' rules only.
 	err = s.updateInstanceSharedSecurityGroups(sharedSecurityGroupID, instances)
 	if err != nil {
-		glog.Errorf("Kevin!!!!! is this printed?")
 		glog.Warningf("Error opening ingress rules for the shared security group to the instances: %v", err)
 		return nil, err
 	}
@@ -2457,13 +2409,11 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 
 	err = s.ensureLoadBalancerInstances(orEmpty(loadBalancer.LoadBalancerName), loadBalancer.Instances, instances)
 	if err != nil {
-		glog.Errorf("Kevin!  this should be irrelevant")
 		glog.Warningf("Error registering instances with the load balancer: %v", err)
 		return nil, err
 	}
 
 	glog.V(1).Infof("Loadbalancer %s (%v) has DNS name %s", loadBalancerName, serviceName, orEmpty(loadBalancer.DNSName))
-	glog.Errorf("Kevin  If you are here, that means elb is created! yay")
 	// TODO: Wait for creation?
 
 	status := toStatus(loadBalancer)
@@ -2579,7 +2529,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 	if err != nil {
 		return fmt.Errorf("error querying the shared security group: %v", err)
 	}
-	glog.Errorf("Kevin0 actualGroups: %v", actualGroups)
 
 	taggedSecurityGroups, err := s.getTaggedSecurityGroups()
 	if err != nil {
@@ -2612,14 +2561,11 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		}
 
 		instanceSecurityGroupIds[id] = true
-		glog.Errorf("Kevin1 instanceSecurityGroupIds[%s]: true", id)
 	}
-	glog.Errorf("Kevin2 entire instanceSecurityGroupIds map!: %v", instanceSecurityGroupIds)
 
 	//Compare to actual groups
 	for _, actualGroup := range actualGroups {
 		actualGroupID := aws.StringValue(actualGroup.GroupId)
-		glog.Errorf("Kevin3 actualGroupID that has ssgID: %s", actualGroupID)
 		if actualGroupID == "" {
 			glog.Warning("Ignoring group without ID: ", actualGroup)
 			continue
@@ -2629,10 +2575,8 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 
 		if found && adding {
 			// We don't need to make a change; the permission is already in place
-			glog.Errorf("Kevin4 Yay! this is correctly deleting.")
 			delete(instanceSecurityGroupIds, actualGroupID)
 		} else {
-			glog.Errorf("Kevin5 isn't this already there?")
 			// This group is not needed by allInstances; delete it
 			instanceSecurityGroupIds[actualGroupID] = false
 		}
@@ -2663,7 +2607,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 
 		if add {
 			// TODO#kevin: we use addSharedSecurityGroupIngree instead.
-			glog.Errorf("Kevin6 we are adding ssg to %s: instanceSecurityGroupId", instanceSecurityGroupId)
 			changed, err := s.addSharedSecurityGroupIngress(instanceSecurityGroupId, permission)
 			if err != nil {
 				return err
@@ -2680,7 +2623,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
 func (s *AWSCloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, allInstances []*ec2.Instance) error {
 	// TODO:# hard coded to override user's flag for debugging purpose: currently set to true in databricks-dev
-	//s.cfg.Global.DisableSecurityGroupIngress = true
 
 	if s.cfg.Global.DisableSecurityGroupIngress {
 		return nil
@@ -2807,7 +2749,6 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 	loadBalancerName := cloudprovider.GetLoadBalancerName(service)
 	lb, err := s.describeLoadBalancer(loadBalancerName)
 	if err != nil {
-		glog.Errorf("kevin-16 failed to describe loadbalancer: %s, at deleting", loadBalancerName)
 		return err
 	}
 
@@ -2817,7 +2758,6 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 	}
 
 	{
-		glog.Errorf("#kevin30 we are passing by here. ")
 		// De-authorize the load balancer security group from the instances security group
 		err = s.updateInstanceSecurityGroupsForLoadBalancer(lb, nil)
 		if err != nil {
@@ -2830,10 +2770,8 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		// Delete the load balancer itself
 		request := &elb.DeleteLoadBalancerInput{}
 		request.LoadBalancerName = lb.LoadBalancerName
-		glog.Errorf("are we calling DeleteLoadBalancer?")
 		_, err = s.elb.DeleteLoadBalancer(request)
 		if err != nil {
-			glog.Errorf("kevin-17 failed at deleting load balancer!!?")
 			// TODO: Check if error was because load balancer was concurrently deleted
 			glog.Error("Error deleting load balancer: ", err)
 			return err
@@ -2852,7 +2790,6 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
 		ssgID, err := s.ensureSecurityGroup(sgName, sgDescription)
 		if err != nil {
-			glog.Errorf("kevin-18 error in ensureing shared security group and getting ssgID")
 		}
 
 		for _, securityGroupID := range lb.SecurityGroups {
@@ -2862,7 +2799,6 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 			}
 			// TODO#kevin: we shouldn't try to delete ssgID
 			if *securityGroupID == ssgID {
-				glog.Errorf("kevin-20 yay! skipping ssgID")
 				continue
 			}
 			securityGroupIDs[*securityGroupID] = struct{}{}
@@ -2886,14 +2822,12 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 						}
 					}
 					if !ignore {
-						glog.Errorf("kevin-19 inside delete loadbalancer! => security group deletion")
 						return fmt.Errorf("error while deleting load balancer security group (%s): %v", securityGroupID, err)
 					}
 				}
 			}
 
 			if len(securityGroupIDs) == 0 {
-				glog.Errorf("Deleted all security groups for load balancer: %s", service.Name)
 				glog.V(2).Info("Deleted all security groups for load balancer: ", service.Name)
 				break
 			}
