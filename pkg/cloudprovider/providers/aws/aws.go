@@ -1681,7 +1681,7 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 }
 
 // TODO#kevin: This function is used for setting SSG's rule.
-// Add addPermission rule into securityGroupId's securityGroup.
+// Set addPermission rule into securityGroupId's securityGroup.
 // If addPermission's GroupID is already in securityGroupId's security group's rule, we don't add it.
 func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permissions IPPermissionSet) (bool, error) {
 	group, err := s.findSecurityGroup(securityGroupId)
@@ -1695,6 +1695,7 @@ func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permiss
 	}
 
 	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
+	glog.Errorf("kevin22 right before to see if the permission already exists in the security group.")
 
 	for _, groupPermission := range group.IpPermissions {
 		for _, newPermission := range permissions {
@@ -1705,9 +1706,7 @@ func (s *AWSCloud) setSharedSecurityGroupIngress(securityGroupId string, permiss
 	}
 
 	// TODO#kevin: since the security group doesn't have the rule yet, we should set the rule to instance's rule
-
-	//changes = append(changes, addPermission)
-
+	glog.Errorf("kevin222 setSharedSecurityGroupIngress is being called! and setting new rule")
 	request := &ec2.AuthorizeSecurityGroupIngressInput{}
 	request.GroupId = &securityGroupId
 	request.IpPermissions = permissions.Ungroup().List()
@@ -1776,7 +1775,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	return true, nil
 }
 
-// TODO#kevin: This function is used for setting SSG's rule, or adding SSG's rule into instance's security group rule.
+// TODO#kevin: This function is used for adding SSG's rule into instance's security group rule.
 // Add addPermission rule into securityGroupId's securityGroup.
 // If addPermission's GroupID is already in securityGroupId's security group's rule, we don't add it.
 func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPermission *ec2.IpPermission) (bool, error) {
@@ -1794,6 +1793,7 @@ func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPerm
 
 	changes := []*ec2.IpPermission{}
 	for _, groupPermission := range group.IpPermissions {
+		// Only need to check if the shared security group id exists as a sourceGroupId.
 		if sameGroupIdExists(addPermission, groupPermission) {
 			return false, nil
 		}
@@ -1807,7 +1807,6 @@ func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPerm
 	request.IpPermissions = changes
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
 	if err != nil {
-		// TODO#kevin: for testing (silently suppressing error)
 		glog.Warning("Error authorizing security group ingress", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
 	}
@@ -2334,7 +2333,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			return nil, err
 		}
 
-		// TODO#kevin: Open to every port that has this securityGroup attached
 		ec2SourceRanges := []*ec2.IpRange{}
 		for _, sourceRange := range sourceRanges.StringSlice() {
 			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
@@ -2359,7 +2357,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		}
 
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
-		//_, err = s.setSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		if err != nil {
 			return nil, err
@@ -2390,7 +2387,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		return nil, err
 	}
 
-	// TODO#kevin: Implement the function that add sharedSecurityGroupID into instances' rules only.
+	// TODO#kevin: Implement the function that only add sharedSecurityGroupID into instances' rules.
 	err = s.updateInstanceSharedSecurityGroups(sharedSecurityGroupID, instances)
 	if err != nil {
 		glog.Warningf("Error opening ingress rules for the shared security group to the instances: %v", err)
@@ -2591,8 +2588,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		// TODO#kevin: open to every port coming from the ssg resource.
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
-
-		//permissions := []*ec2.IpPermission{permission}
 
 		if add {
 			// TODO#kevin: we use addSharedSecurityGroupIngree instead.
