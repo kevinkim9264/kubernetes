@@ -2254,8 +2254,6 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		sgDescription := fmt.Sprintf("Security group for Kubernetes ELB %s (%v)", loadBalancerName, serviceName)
 		securityGroupID, err = s.ensureSecurityGroup(sgName, sgDescription)
 		if err != nil {
-			glog.Error("Error creating load balancer security group: ", err)
-			return nil, err
 		}
 
 		ec2SourceRanges := []*ec2.IpRange{}
@@ -2296,6 +2294,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		}
 	}
 	glog.Errorf("kevin22 shared security group created. variable at least")
+
 
 	// TODO#kevin: Should add the shared securityGroupID too.
 	securityGroupIDs := []string{securityGroupID, sharedSecurityGroupID}
@@ -2437,19 +2436,6 @@ func (s *AWSCloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, err
 // TODO#kevin: Almost identical to updateInstanceSecurityGroupsForLoadBalancer, but it only adds ssg rules to
 // instances' inbound rules.
 func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances []*ec2.Instance) error {
-	// Get the actual list of groups that allow ingress from the load-balancer
-	// actualGroups = security groups that that have the ssg as part of its rule.
-
-	describeRequest := &ec2.DescribeSecurityGroupsInput{}
-	filters := []*ec2.Filter{}
-	filters = append(filters, newEc2Filter("ip-permission.group-id", ssgID))
-	describeRequest.Filters = s.addFilters(filters)
-	// this is where it acquires security groups that have ip-permission.group-id is ssgID
-	actualGroups, err := s.ec2.DescribeSecurityGroups(describeRequest)
-	if err != nil {
-		return fmt.Errorf("error querying the shared security group: %v", err)
-	}
-
 	taggedSecurityGroups, err := s.getTaggedSecurityGroups()
 	if err != nil {
 		return fmt.Errorf("error querying for tagged security groups: %v", err)
@@ -2469,7 +2455,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		if err != nil {
 			return err
 		}
-
 		if securityGroup == nil {
 			glog.Warning("Ignoring instance without security group: ", orEmpty(instance.InstanceId))
 			continue
@@ -2483,31 +2468,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		instanceSecurityGroupIds[id] = true
 	}
 
-	//Compare to actual groups
-	for _, actualGroup := range actualGroups {
-		actualGroupID := aws.StringValue(actualGroup.GroupId)
-		if actualGroupID == "" {
-			glog.Warning("Ignoring group without ID: ", actualGroup)
-			continue
-		}
-
-		adding, found := instanceSecurityGroupIds[actualGroupID]
-
-		if found && adding {
-			// We don't need to make a change; the permission is already in place
-			delete(instanceSecurityGroupIds, actualGroupID)
-		} else {
-			// This group is not needed by allInstances; delete it
-			instanceSecurityGroupIds[actualGroupID] = false
-		}
-	}
-
-	for instanceSecurityGroupId, add := range instanceSecurityGroupIds {
-		if add {
-			glog.V(2).Infof("Adding shared security group id resource(with open to every port rule) to instance (%s)", instanceSecurityGroupId)
-		} else {
-			glog.V(2).Infof("Removing shared security group id resource from instance (%s)", instanceSecurityGroupId)
-		}
+	for instanceSecurityGroupId, _ := range instanceSecurityGroupIds {
 		sourceGroupId := &ec2.UserIdGroupPair{}
 		sourceGroupId.GroupId = &ssgID
 
@@ -2523,17 +2484,13 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
 
-		//permissions := []*ec2.IpPermission{permission}
-
-		if add {
-			// TODO#kevin: we use addSharedSecurityGroupIngree instead.
-			changed, err := s.addSharedSecurityGroupIngress(instanceSecurityGroupId, permission)
-			if err != nil {
-				return err
-			}
-			if !changed {
-				glog.Warning("shared security group id already in instance's security group!")
-			}
+		// TODO#kevin: we use addSharedSecurityGroupIngress instead.
+		changed, err := s.addSharedSecurityGroupIngress(instanceSecurityGroupId, permission)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			glog.Warning("shared security group id already in instance's security group!")
 		}
 	}
 	return nil
