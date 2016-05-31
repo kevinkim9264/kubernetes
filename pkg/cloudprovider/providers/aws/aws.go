@@ -2332,31 +2332,31 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			glog.Error("Error creating load balancer security group: ", err)
 			return nil, err
 		}
-
-		ec2SourceRanges := []*ec2.IpRange{}
-		for _, sourceRange := range sourceRanges.StringSlice() {
-			ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
-		}
-
-		permissions := NewIPPermissionSet()
-		for _, port := range apiService.Spec.Ports {
-			portInt64 := int64(port.Port)
-			protocol := strings.ToLower(string(port.Protocol))
-
-			sourceGroupId := &ec2.UserIdGroupPair{}
-			sourceGroupId.GroupId = &sharedSecurityGroupID
-
-			permission := &ec2.IpPermission{}
-			permission.FromPort = &portInt64
-			permission.ToPort = &portInt64
-			permission.IpRanges = ec2SourceRanges
-			permission.IpProtocol = &protocol
-			permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
-
-			permissions.Insert(permission)
-		}
-
-		glog.Errorf("kevin333 We are not setting Shared Security Group rule at all. Let's see what happens!")
+		//
+		//ec2SourceRanges := []*ec2.IpRange{}
+		//for _, sourceRange := range sourceRanges.StringSlice() {
+		//	ec2SourceRanges = append(ec2SourceRanges, &ec2.IpRange{CidrIp: aws.String(sourceRange)})
+		//}
+		//
+		//permissions := NewIPPermissionSet()
+		//for _, port := range apiService.Spec.Ports {
+		//	portInt64 := int64(port.Port)
+		//	protocol := strings.ToLower(string(port.Protocol))
+		//
+		//	sourceGroupId := &ec2.UserIdGroupPair{}
+		//	sourceGroupId.GroupId = &sharedSecurityGroupID
+		//
+		//	permission := &ec2.IpPermission{}
+		//	permission.FromPort = &portInt64
+		//	permission.ToPort = &portInt64
+		//	permission.IpRanges = ec2SourceRanges
+		//	permission.IpProtocol = &protocol
+		//	permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
+		//
+		//	permissions.Insert(permission)
+		//}
+		//
+		//glog.Errorf("kevin333 We are not setting Shared Security Group rule at all. Let's see what happens!")
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
 		//_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
 		//if err != nil {
