@@ -2356,11 +2356,12 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 			permissions.Insert(permission)
 		}
 
+		glog.Errorf("kevin333 We are not setting Shared Security Group rule at all. Let's see what happens!")
 		// TODO#kevin: Should I set the permissions to the rule for shared security group?
-		_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
-		if err != nil {
-			return nil, err
-		}
+		//_, err = s.setSharedSecurityGroupIngress(sharedSecurityGroupID, permissions)
+		//if err != nil {
+		//	return nil, err
+		//}
 	}
 
 	// TODO#kevin: Should add the shared securityGroupID too.
