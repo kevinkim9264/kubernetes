@@ -2498,15 +2498,15 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 
 		// TODO#kevin: Instances should allow every traffic coming from the ssg resource.
 		allProtocols := "-1"
-		fromPort := int64(nil)
-		toPort := int64(nil)
+		//fromPort := int64(nil)
+		//toPort := int64(nil)
 
 		permission := &ec2.IpPermission{}
 		permission.IpProtocol = &allProtocols
 		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
 		// TODO#kevin: open to every port coming from the ssg resource.
-		permission.FromPort = &fromPort
-		permission.ToPort = &toPort
+		//permission.FromPort = &fromPort
+		//permission.ToPort = &toPort
 
 		permissions := []*ec2.IpPermission{permission}
 
