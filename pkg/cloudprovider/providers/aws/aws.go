@@ -105,7 +105,7 @@ const DefaultVolumeType = "gp2"
 const DefaultMaxEBSVolumes = 39
 
 // Default prefix for shared security group name. This will be followed by cluster name.
-const SharedSecurityGroupNamePrefix = "k8s-elb-shared-security-group"
+const SharedSecurityGroupNamePrefix = "k8s-elb-shared-security-group-"
 
 // Used to call aws_credentials.Init() just once
 var once sync.Once
@@ -1542,6 +1542,9 @@ func isEqualStringPointer(l, r *string) bool {
 }
 
 func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupUserIDs bool) bool {
+	glog.Errorf("kevin77 fromPort1: %s, fromPort2: %s", newPermission.FromPort, existing.FromPort)
+	glog.Errorf("kevin777 toPort1: %s, toPort2: %s", newPermission.ToPort, existing.ToPort)
+	glog.Errorf("kevin7777 Protocol1: %s, Protocol2: %s", newPermission.IpProtocol, existing.IpProtocol)
 	if !isEqualIntPointer(newPermission.FromPort, existing.FromPort) {
 		glog.Errorf("kevin77 not equal fromport. fromport1: %s,  fromport2: %s", newPermission.FromPort, existing.FromPort)
 		return false
@@ -1551,9 +1554,10 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 		return false
 	}
 	if !isEqualStringPointer(newPermission.IpProtocol, existing.IpProtocol) {
-		glog.Errorf("kevin79 not equal IpProtocol. Protocol1: %s, Protocol2: %s", newPermission.IpProtocol, existing.ipProtocol)
+		glog.Errorf("kevin79 not equal IpProtocol. Protocol1: %s, Protocol2: %s", newPermission.IpProtocol, existing.IpProtocol)
 		return false
 	}
+
 	// Check only if newPermission is a subset of existing. Usually it has zero or one elements.
 	// Not doing actual CIDR math yet; not clear it's needed, either.
 	glog.V(4).Infof("Comparing %v to %v", newPermission, existing)
@@ -2328,7 +2332,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 		return nil, err
 	}
 
-	// TODO#kevin: Should probably remove the following function or DisablSecurityGroupingress flag should be on.
+	// TODO#kevin: Should probably modify the following function or DisablSecurityGroupingress flag should be on.
 	// Add loadbalancer's security group's rules into instances' security groups' rules.
 	// But this function only picks one security group from the loadbalancer.
 	// With the addition of sharedSecurityGroupID, this function's flag should be turned off or it won't work properly.
@@ -2494,8 +2498,8 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 
 		// TODO#kevin: Instances should allow every traffic coming from the ssg resource.
 		allProtocols := "-1"
-		fromPort := int64(-1)
-		toPort := int64(-1)
+		fromPort := int64(nil)
+		toPort := int64(nil)
 
 		permission := &ec2.IpPermission{}
 		permission.IpProtocol = &allProtocols
