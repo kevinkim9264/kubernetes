@@ -104,6 +104,9 @@ const DefaultVolumeType = "gp2"
 // See http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/volume_limits.html#linux-specific-volume-limits
 const DefaultMaxEBSVolumes = 39
 
+// Default prefix for shared security group name. This will be followed by cluster name.
+const SharedSecurityGroupNamePrefix = "k8s-elb-shared-security-group"
+
 // Used to call aws_credentials.Init() just once
 var once sync.Once
 
@@ -1540,18 +1543,24 @@ func isEqualStringPointer(l, r *string) bool {
 
 func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupUserIDs bool) bool {
 	if !isEqualIntPointer(newPermission.FromPort, existing.FromPort) {
+		glog.Errorf("kevin77 not equal fromport. fromport1: %s,  fromport2: %s", newPermission.FromPort, existing.FromPort)
 		return false
 	}
 	if !isEqualIntPointer(newPermission.ToPort, existing.ToPort) {
+		glog.Errorf("kevin78 not equal toport. toport1: %s, toport2: %s", newPermission.ToPort, existing.ToPort)
 		return false
 	}
 	if !isEqualStringPointer(newPermission.IpProtocol, existing.IpProtocol) {
+		glog.Errorf("kevin79 not equal IpProtocol. Protocol1: %s, Protocol2: %s", newPermission.IpProtocol, existing.ipProtocol)
 		return false
 	}
 	// Check only if newPermission is a subset of existing. Usually it has zero or one elements.
 	// Not doing actual CIDR math yet; not clear it's needed, either.
 	glog.V(4).Infof("Comparing %v to %v", newPermission, existing)
 	if len(newPermission.IpRanges) > len(existing.IpRanges) {
+		glog.Errorf("kevin80 newPermission is not subset of existing permission")
+		glog.Errorf("kevin90 IpRanges1: %s", newPermission.IpRanges)
+		glog.Errorf("kevin91, IpRanges2: %s", existing.IpRanges)
 		return false
 	}
 
@@ -1564,6 +1573,7 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 			}
 		}
 		if found == false {
+			glog.Errorf("kevin81 Equal IpRanges not found")
 			return false
 		}
 	}
@@ -1573,13 +1583,14 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 				return true
 			}
 		}
+		glog.Errorf("kevin82 couldn't find any equal usergroup pair....")
 		return false
 	}
 
 	return true
 }
 
-// TODO#kevin: meant to be used only for checking if sharedSecurityGroup's source group is already in instance's
+// This function is meant to be used only for checking if sharedSecurityGroup's source group is already in instance's
 // security group rule's source group.
 // Check if newPermission's GroupId is in one of IpPermission's GroupIds
 func sameGroupIdExists(newPermission, existing *ec2.IpPermission) bool {
@@ -1696,6 +1707,8 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 
 	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
 
+	glog.Errorf("kevin35 inside the addSecurityGroupIngress")
+
 	changes := []*ec2.IpPermission{}
 	for _, addPermission := range addPermissions {
 		hasUserID := false
@@ -1707,7 +1720,9 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 
 		found := false
 		for _, groupPermission := range group.IpPermissions {
+			glog.Errorf("kevin66 about to test ipPermissionExists")
 			if ipPermissionExists(addPermission, groupPermission, hasUserID) {
+				glog.Errorf("kevin99 YAY, ipPermissionExists!")
 				found = true
 				break
 			}
@@ -1736,8 +1751,10 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	return true, nil
 }
 
-// TODO#kevin: This function is used for adding SSG's rule(permission) into instance.
-// Note the rule we add here is always to accept every traffic coming from the security group id.
+// This function is used for adding SSG's rule(permission) into instance
+// Returns true if and only if changes were made
+// The security group must already exist
+// Note the rule we add here is always to accept every traffic coming from the security group id
 func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPermission *ec2.IpPermission) (bool, error) {
 	group, err := s.findSecurityGroup(securityGroupId)
 	if err != nil {
@@ -2248,7 +2265,7 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	var securityGroupID string
 	{
 		sgName := "k8s-elb-" + loadBalancerName
-		sgDescription := fmt.Sprintf("Security group for Kubernetes ELB %s (%v)", loadBalancerName, serviceName)
+		sgDescription := fmt.Sprintf("Security group for Kubernetes %s (%v)", loadBalancerName, serviceName)
 		securityGroupID, err = s.ensureSecurityGroup(sgName, sgDescription)
 		if err != nil {
 			glog.Error("Error creating load balancer security group: ", err)
@@ -2283,8 +2300,9 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	var sharedSecurityGroupID string
 	{
 		// Currently, I am assuming the s.getClusterName() will return unique cluster name for each KubeCluster.
-		sgName := "k8s-elb-" + s.getClusterName() + "shared-security-group"
-		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
+		sgName, sgDescription := s.getSSGInfo()
+		//sgName := SharedSecurityGroupNamePrefix + s.getClusterName()
+		//sgDescription := fmt.Sprintf("Shared security group for Kubernetes ELB %s", s.getClusterName())
 		// Returns corresponding securityGroupID if exists. If not, it creates a securityGroup and returns ID.
 		// Note that we don't set any permission/rule for the shared security group.
 		// As long as the shared security group is attached to the ELB, traffic from the ELB will be allowed to
@@ -2486,8 +2504,13 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permission.FromPort = &fromPort
 		permission.ToPort = &toPort
 
+		permissions := []*ec2.IpPermission{permission}
+
 		// TODO#kevin: we use addSharedSecurityGroupIngree instead.
-		changed, err := s.addSharedSecurityGroupIngress(instanceSecurityGroupId, permission)
+
+		glog.Errorf("kevin22 Ok, now we are calling addSecurityGroupIngress for sharedsecurity")
+
+		changed, err := s.addSecurityGroupIngress(instanceSecurityGroupId, permissions)
 		if err != nil {
 			return err
 		}
@@ -2663,8 +2686,9 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		securityGroupIDs := map[string]struct{}{}
 
 		// TODO#kevin: shared securitygroup ID for reference
-		sgName := "k8s-elb-" + s.getClusterName() + "shared-security-group"
-		sgDescription := fmt.Sprintf("Shared security group for KubeCluster %s", s.getClusterName())
+		sgName, sgDescription := s.getSSGInfo()
+		//sgName := SharedSecurityGroupNamePrefix + s.getClusterName()
+		//sgDescription := fmt.Sprintf("Shared security group for Kubernetes ELBs %s", s.getClusterName())
 		ssgID, err := s.ensureSecurityGroup(sgName, sgDescription)
 		if err != nil {
 			glog.Warningf("Error creating shared security group: ", err)
@@ -2887,4 +2911,11 @@ func (s *AWSCloud) addFilters(filters []*ec2.Filter) []*ec2.Filter {
 // Returns the cluster name or an empty string
 func (s *AWSCloud) getClusterName() string {
 	return s.filterTags[TagNameKubernetesCluster]
+}
+
+// Returns the shared security group name and shared security group description
+func (s *AWSCloud) getSSGInfo() (string, string) {
+	sgName := SharedSecurityGroupNamePrefix + s.getClusterName()
+	sgDescription := fmt.Sprintf("Shared security group for Kubernetes ELBs %s", s.getClusterName())
+	return sgName, sgDescription
 }
