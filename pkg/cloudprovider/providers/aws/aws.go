@@ -1594,21 +1594,6 @@ func ipPermissionExists(newPermission, existing *ec2.IpPermission, compareGroupU
 	return true
 }
 
-// This function is meant to be used only for checking if sharedSecurityGroup's source group is already in instance's
-// security group rule's source group.
-// Check if newPermission's GroupId is in one of IpPermission's GroupIds
-func sameGroupIdExists(newPermission, existing *ec2.IpPermission) bool {
-	// TODO#kevin Actually newPermission.UserIdGroupPairs[0] is just as fine, but this is to follow the existing code style
-	for _, leftPair := range newPermission.UserIdGroupPairs {
-		for _, rightPair := range existing.UserIdGroupPairs {
-			if isEqualStringPointer(leftPair.GroupId, rightPair.GroupId) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func isEqualUserGroupPair(l, r *ec2.UserIdGroupPair, compareGroupUserIDs bool) bool {
 	glog.V(2).Infof("Comparing %v to %v", *l.GroupId, *r.GroupId)
 	if isEqualStringPointer(l.GroupId, r.GroupId) {
@@ -1752,45 +1737,6 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
 	}
 
-	return true, nil
-}
-
-// This function is used for adding SSG's rule(permission) into instance
-// Returns true if and only if changes were made
-// The security group must already exist
-// Note the rule we add here is always to accept every traffic coming from the security group id
-func (s *AWSCloud) addSharedSecurityGroupIngress(securityGroupId string, addPermission *ec2.IpPermission) (bool, error) {
-	group, err := s.findSecurityGroup(securityGroupId)
-	if err != nil {
-		glog.Warningf("Error retrieving security group: %v", err)
-		return false, err
-	}
-
-	if group == nil {
-		return false, fmt.Errorf("security group not found: %s", securityGroupId)
-	}
-
-	glog.V(2).Infof("Existing security group ingress: %s %v", securityGroupId, group.IpPermissions)
-
-	changes := []*ec2.IpPermission{}
-	for _, groupPermission := range group.IpPermissions {
-		// For the shared security group, we just need to check if instances already have the shared security
-		// group id as the source in one of their rules.
-		if sameGroupIdExists(addPermission, groupPermission) {
-			return false, nil
-		}
-	}
-
-	// TODO#kevin: since the security group doesn't have the rule yet, we should add the rule to instance's rule
-	changes = append(changes, addPermission)
-
-	request := &ec2.AuthorizeSecurityGroupIngressInput{}
-	request.GroupId = &securityGroupId
-	request.IpPermissions = changes
-	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
-	if err != nil {
-		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
-	}
 	return true, nil
 }
 
@@ -2509,8 +2455,6 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		//permission.ToPort = &toPort
 
 		permissions := []*ec2.IpPermission{permission}
-
-		// TODO#kevin: we use addSharedSecurityGroupIngree instead.
 
 		glog.Errorf("kevin22 Ok, now we are calling addSecurityGroupIngress for sharedsecurity")
 
