@@ -1503,8 +1503,8 @@ func (s *AWSCloud) findSecurityGroup(securityGroupId string) (*ec2.SecurityGroup
 		GroupIds: []*string{&securityGroupId},
 	}
 	// We don't apply our tag filters because we are retrieving by ID
-
 	groups, err := s.ec2.DescribeSecurityGroups(describeSecurityGroupsRequest)
+	glog.Errorf("groups in findSecurityGroup: %s", groups)
 	if err != nil {
 		glog.Warningf("Error retrieving security group: %q", err)
 		return nil, err
@@ -1685,6 +1685,7 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 // The security group must already exist
 func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermissions []*ec2.IpPermission) (bool, error) {
 	group, err := s.findSecurityGroup(securityGroupId)
+	glog.Errorf("group after findSecurityGroup: %s", group)
 	if err != nil {
 		glog.Warningf("Error retrieving security group: %v", err)
 		return false, err
@@ -1721,6 +1722,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 			changes = append(changes, addPermission)
 		}
 	}
+	glog.Errorf("changes: %s", changes)
 
 	if len(changes) == 0 {
 		return false, nil
@@ -1731,7 +1733,10 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	request := &ec2.AuthorizeSecurityGroupIngressInput{}
 	request.GroupId = &securityGroupId
 	request.IpPermissions = changes
+	glog.Errorf("request object: %s", request)
+	glog.Errorf("about to call AuthorizeSecurityGroup @@@")
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
+	glog.Errorf("authorizing done... hopefully")
 	if err != nil {
 		glog.Warning("Error authorizing security group ingress", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
@@ -2342,10 +2347,11 @@ func toStatus(lb *elb.LoadBalancerDescription) *api.LoadBalancerStatus {
 // Otherwise we will return an error.
 func findSecurityGroupForInstance(instance *ec2.Instance, taggedSecurityGroups map[string]*ec2.SecurityGroup) (*ec2.GroupIdentifier, error) {
 	instanceID := aws.StringValue(instance.InstanceId)
-
+	glog.Errorf("instance: %s", instance)
 	var tagged []*ec2.GroupIdentifier
 	var untagged []*ec2.GroupIdentifier
 	for _, group := range instance.SecurityGroups {
+		glog.Errorf("group: %s", group)
 		groupID := aws.StringValue(group.GroupId)
 		if groupID == "" {
 			glog.Warningf("Ignoring security group without id for instance %q: %v", instanceID, group)
@@ -2385,9 +2391,11 @@ func (s *AWSCloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, err
 	request := &ec2.DescribeSecurityGroupsInput{}
 	request.Filters = s.addFilters(nil)
 	groups, err := s.ec2.DescribeSecurityGroups(request)
+	glog.Errorf("In get TaggedSecurityGroups(), groups: %s", groups)
 	if err != nil {
 		return nil, fmt.Errorf("error querying security groups: %v", err)
 	}
+
 
 	m := make(map[string]*ec2.SecurityGroup)
 	for _, group := range groups {
@@ -2404,7 +2412,10 @@ func (s *AWSCloud) getTaggedSecurityGroups() (map[string]*ec2.SecurityGroup, err
 // TODO#kevin: Almost identical to updateInstanceSecurityGroupsForLoadBalancer, but it only adds ssg rules to
 // instances' inbound rules.
 func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances []*ec2.Instance) error {
+	glog.Errorf("kevin222: updateInstanceSharedSecurityGroup  is being calllleeeedddddd")
+	glog.Errorf("Starting instances!: %s", allInstances)
 	taggedSecurityGroups, err := s.getTaggedSecurityGroups()
+	glog.Errorf("taggedSecurityGroups: %s", taggedSecurityGroups)
 	if err != nil {
 		return fmt.Errorf("error querying for tagged security groups: %v", err)
 	}
@@ -2437,6 +2448,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		instanceSecurityGroupIds[id] = true
 	}
 
+	glog.Errorf("kevin333: now ingressing shared security group rule into instances")
 
 	for instanceSecurityGroupId, _ := range instanceSecurityGroupIds {
 		sourceGroupId := &ec2.UserIdGroupPair{}
@@ -2457,12 +2469,16 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permissions := []*ec2.IpPermission{permission}
 
 		glog.Errorf("kevin22 Ok, now we are calling addSecurityGroupIngress for sharedsecurity")
+		glog.Errorf("currently dealing with instance group id of %s", instanceSecurityGroupId)
+		glog.Errorf("and adding permissions: %s", permissions)
 
 		changed, err := s.addSecurityGroupIngress(instanceSecurityGroupId, permissions)
+		glog.Errorf("add securitygroupingress done Lol")
 		if err != nil {
 			return err
 		}
 		if !changed {
+			glog.Errorf("shared security group id already in instance: %s  security group!", instanceSecurityGroupId)
 			glog.Warning("shared security group id already in instance's security group!")
 		}
 	}
@@ -2472,6 +2488,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 // Open security group ingress rules on the instances so that the load balancer can talk to them
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
 func (s *AWSCloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, allInstances []*ec2.Instance) error {
+	glog.Errorf("Calling updateInstanceSecurityGroups  Original")
 	if s.cfg.Global.DisableSecurityGroupIngress {
 		return nil
 	}
