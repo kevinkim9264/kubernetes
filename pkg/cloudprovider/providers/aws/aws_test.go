@@ -1234,7 +1234,7 @@ func sgGenerator(description string, id string, name string) (ec2.SecurityGroup)
 func instanceGenerator(id, dns, privateIp, publicIp, instanceType, placement, state string) (ec2.Instance) {
 	var instance ec2.Instance
 	instance.InstanceId = &id
-	instance.PrivateDnsName = &Dns
+	instance.PrivateDnsName = &dns
 	instance.PrivateIpAddress = &privateIp
 	instance.PublicIpAddress = &publicIp
 	instance.InstanceType = &instanceType
@@ -1314,6 +1314,8 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	fakeAuthor := ec2.AuthorizeSecurityGroupIngressOutput{}
 	awsServices.ec2.On("AuthorizeSecurityGroupIngress", authorizeRequest).Return(&fakeAuthor, nil).Run(appendPermission)
 
+	c.cfg.Global.DisableSecurityGroupIngress = false
+	c.cfg.Global.EnableSharedSecurityGroupIngress = true
 	c.updateInstanceSharedSecurityGroups(*sg0.GroupId, []*ec2.Instance{&instance1, &instance2})
 
 	// First check if instances' security groups are same as what we intended to deal with
@@ -1321,6 +1323,7 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	assert.Equal(t, *sg1.GroupId, *instance2.SecurityGroups[0].GroupId)
 
 	// Now check if "open to every protocol" rule has been successfully added to the security group
+	glog.Errorf("sg1.IpPermissions: %s", sg1.IpPermissions)
 	assert.Equal(t, "-1", *sg1.IpPermissions[0].IpProtocol)
 	assert.Equal(t, "shared-security-group-id", *sg1.IpPermissions[0].UserIdGroupPairs[0].GroupId)
 

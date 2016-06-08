@@ -585,6 +585,9 @@ func readAWSCloudConfig(config io.Reader, metadata EC2Metadata) (*AWSCloudConfig
 		}
 	}
 
+	cfg.Global.DisableSecurityGroupIngress = false
+	cfg.Global.EnableSharedSecurityGroupIngress = true
+
 	return &cfg, nil
 }
 
@@ -1682,6 +1685,7 @@ func (s *AWSCloud) setSecurityGroupIngress(securityGroupId string, permissions I
 // The security group must already exist
 func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermissions []*ec2.IpPermission) (bool, error) {
 	group, err := s.findSecurityGroup(securityGroupId)
+	glog.Errorf("security group: %s", group)
 	if err != nil {
 		glog.Warningf("Error retrieving security group: %v", err)
 		return false, err
@@ -1725,6 +1729,7 @@ func (s *AWSCloud) addSecurityGroupIngress(securityGroupId string, addPermission
 	request.GroupId = &securityGroupId
 	request.IpPermissions = changes
 	_, err = s.ec2.AuthorizeSecurityGroupIngress(request)
+	glog.Errorf("After authorizeSecuritygroup: group.IpPermissions: %s", group.IpPermissions)
 	if err != nil {
 		glog.Warning("Error authorizing security group ingress", err)
 		return false, fmt.Errorf("error authorizing security group ingress: %v", err)
@@ -2446,7 +2451,8 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 		permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
 
 		permissions := []*ec2.IpPermission{permission}
-
+		glog.Errorf("Instance security groupid: %s", instanceSecurityGroupId)
+		glog.Errorf("Permissions we are adding: %s", permissions)
 		changed, err := s.addSecurityGroupIngress(instanceSecurityGroupId, permissions)
 		if err != nil {
 			return err
@@ -2461,7 +2467,7 @@ func (s *AWSCloud) updateInstanceSharedSecurityGroups(ssgID string, allInstances
 // Open security group ingress rules on the instances so that the load balancer can talk to them
 // Will also remove any security groups ingress rules for the load balancer that are _not_ needed for allInstances
 func (s *AWSCloud) updateInstanceSecurityGroupsForLoadBalancer(lb *elb.LoadBalancerDescription, allInstances []*ec2.Instance) error {
-	if s.cfg.Global.DisableSecurityGroupIngress || s.cfg.Global.DisableSecurityGroupIngress {
+	if s.cfg.Global.DisableSecurityGroupIngress || s.cfg.Global.EnableSharedSecurityGroupIngress {
 		return nil
 	}
 
@@ -2624,7 +2630,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 
 		// shared securitygroup ID for reference
 		var ssgID string
-		var err string
+		var err error
 		if s.cfg.Global.DisableSecurityGroupIngress == false && s.cfg.Global.EnableSharedSecurityGroupIngress {
 			sgName, sgDescription := s.getSSGInfo()
 			ssgID, err = s.ensureSecurityGroup(sgName, sgDescription)
