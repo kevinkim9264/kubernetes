@@ -1231,7 +1231,7 @@ func sgGenerator(description string, id string, name string) (ec2.SecurityGroup)
 	return sg1
 }
 
-func instanceGenerator(id, Dns, privateIp, publicIp, instanceType, placement, state string) (ec2.Instance) {
+func instanceGenerator(id, dns, privateIp, publicIp, instanceType, placement, state string) (ec2.Instance) {
 	var instance ec2.Instance
 	instance.InstanceId = &id
 	instance.PrivateDnsName = &Dns
@@ -1297,13 +1297,13 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	permission := &ec2.IpPermission{}
 	permission.IpProtocol = &allProtocols
 	permission.UserIdGroupPairs = []*ec2.UserIdGroupPair{sourceGroupId}
-	changes := []*ec2.IpPermission{}
-	changes = append(changes, permission)
+	changes := []*ec2.IpPermission{permission}
 
+	authorizeRequest := &ec2.AuthorizeSecurityGroupIngressInput{
+		GroupId: sg1.GroupId,
+		IpPermissions: changes,
+	}
 
-	authorizeRequest := &ec2.AuthorizeSecurityGroupIngressInput{}
-	authorizeRequest.GroupId = sg1.GroupId
-	authorizeRequest.IpPermissions = changes
 
 
 	// This is for AuthorizeSecurityGroupIngress in addSecurityGroupIngress
