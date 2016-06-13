@@ -257,8 +257,6 @@ type FakeEC2 struct {
 	RouteTables              []*ec2.RouteTable
 	DescribeRouteTablesInput *ec2.DescribeRouteTablesInput
 	mock.Mock
-	// For the sake of test, FakeEC2 has SecurityGroups and Instance
-	instance                 *ec2.Instance
 }
 
 func contains(haystack []*string, needle string) bool {
@@ -448,8 +446,10 @@ func (e *FakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInpu
 
 
 func (e *FakeEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
-	// Creates a security group and attach it to aws.securityGrouops, and returns CreateSecurityGroupOutput with the corresponding id
-	e.aws.securityGroups = append(e.aws.securityGroups, &ec2.SecurityGroup{GroupName: request.GroupName, VpcId: request.VpcId, GroupId: request.GroupName})
+	// Creates a security group and appends it to aws.securityGrouops, and returns CreateSecurityGroupOutput with the corresponding id
+	testTag := ec2.Tag{Key: aws.String(TagNameKubernetesCluster), Value: aws.String(TestClusterId),}
+	testTags := []*ec2.Tag{&testTag}
+	e.aws.securityGroups = append(e.aws.securityGroups, &ec2.SecurityGroup{GroupName: request.GroupName, VpcId: request.VpcId, GroupId: request.GroupName, Tags: testTags,})
 	output := ec2.CreateSecurityGroupOutput{GroupId: request.GroupName}
 	return &output, nil
 }
@@ -459,8 +459,12 @@ func (ec2 *FakeEC2) DeleteSecurityGroup(*ec2.DeleteSecurityGroupInput) (*ec2.Del
 }
 
 func (e *FakeEC2) AuthorizeSecurityGroupIngress(request *ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
+	glog.Errorf("e.aws.securityGroups: %s", e.aws.securityGroups)
+	glog.Errorf("request: %s", request)
 	for _, securityGroup := range e.aws.securityGroups {
-		if securityGroup.GroupId == request.GroupId {
+		glog.Errorf("securityGroup.GroupId: %s,  request.GroupId: %s", securityGroup.GroupId, request.GroupId)
+		if *securityGroup.GroupId == *request.GroupId {
+			glog.Errorf("We are adding rule!: %s into securityGroup: %s", request.IpPermissions, securityGroup)
 			for _, permission := range request.IpPermissions {
 				securityGroup.IpPermissions = append(securityGroup.IpPermissions, permission)
 			}
@@ -1321,30 +1325,34 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	awsServices.ec2.CreateSecurityGroup(&sgInput)
 
 	// shared security group
-	sg0 := ssgGenerator()
-	sg0.VpcId = &c.vpcID
+	ssgInput := ec2.CreateSecurityGroupInput{Description: aws.String("shared-security-group-description"),
+						 GroupName: aws.String("shared-security-group-name"),
+						 VpcId: &c.vpcID}
+	ssgOutput, _ := awsServices.ec2.CreateSecurityGroup(&ssgInput)
+	ssgId := ssgOutput.GroupId
 
 	// Make sure this instance has the security group we intend to test a.k.a sgInput security group
-	instance1 := instanceGenerator("i-1", "instance-same.ec2.internal", "192.168.0.2", "1.2.3.4", "c3.large", "us-east-1a", "running", awsServices.securityGroups[1].GroupId, awsServices.securityGroups[1].GroupName)
+	instance1 := instanceGenerator("i-1", "instance-same.ec2.internal", "192.168.0.2", "1.2.3.4", "c3.large", "us-east-1a", "running", *awsServices.securityGroups[0].GroupId, *awsServices.securityGroups[0].GroupName)
 
-	awsServices.instances = append(awsServices.instances, instance1)
+	awsServices.instances = append(awsServices.instances, &instance1)
 
 	// Set flags properly in order to test updateInstanceSharedSecurityGroups
 	c.cfg.Global.DisableSecurityGroupIngress = false
 	c.cfg.Global.EnableSharedSecurityGroupIngress = true
 
 	glog.Errorf("Calling updateinstancesharedsecuritygroups!!!!")
-	c.updateInstanceSharedSecurityGroups(*sg0.GroupId, awsServices.instances)
+	glog.Errorf("ssgId we are adding: %s", *ssgId)
+	c.updateInstanceSharedSecurityGroups(*ssgId, awsServices.instances)
 
 	glog.Errorf("After updateInstanceShared, permissions of sg[0]: %s", awsServices.securityGroups[0].IpPermissions)
+	glog.Errorf("After updateInstanceShared, permissions of sg[1](shared securitygroup shouldn't be updated): %s", awsServices.securityGroups[1].IpPermissions)
 	// Now check if "open to every protocol" rule has been successfully added to the security group
 	glog.Errorf("sg1.IpPermissions: %s", awsServices.securityGroups[0].IpPermissions)
 	assert.Equal(t, "-1", *awsServices.securityGroups[0].IpPermissions[0].IpProtocol)
-	assert.Equal(t, "shared-security-group-id", *awsServices.securityGroups[0].IpPermissions[0].UserIdGroupPairs[0].GroupId)
-
+	assert.Equal(t, *ssgId, *awsServices.securityGroups[0].IpPermissions[0].UserIdGroupPairs[0].GroupId)
 
 	// Now try updateInstanceSharedSecurityGroups again and check that AuthorizeSecurityGroupIngress is never called
-	c.updateInstanceSharedSecurityGroups(*sg0.GroupId, []*ec2.Instance{&instance1})
+	c.updateInstanceSharedSecurityGroups(*ssgId, []*ec2.Instance{&instance1})
 	awsServices.ec2.AssertNumberOfCalls(t, "AuthorizeSecurityGroupIngress", 0)
 
 }
