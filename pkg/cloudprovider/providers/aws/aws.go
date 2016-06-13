@@ -1514,6 +1514,7 @@ func (s *AWSCloud) findSecurityGroup(securityGroupId string) (*ec2.SecurityGroup
 	// We don't apply our tag filters because we are retrieving by ID
 
 	groups, err := s.ec2.DescribeSecurityGroups(describeSecurityGroupsRequest)
+	glog.Errorf("kevin: goups in findSecurityGroup: %s", groups)
 	if err != nil {
 		glog.Warningf("Error retrieving security group: %q", err)
 		return nil, err
