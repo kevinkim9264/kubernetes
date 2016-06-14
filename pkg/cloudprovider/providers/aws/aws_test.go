@@ -395,6 +395,10 @@ func (ec2 *FakeEC2) DeleteVolume(request *ec2.DeleteVolumeInput) (resp *ec2.Dele
 	panic("Not implemented")
 }
 
+func (e *FakeEC2) CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
+	panic("Not implemented")
+}
+
 func securityGroupMatchesFilter(securityGroup *ec2.SecurityGroup, filter *ec2.Filter) bool {
 	name := *filter.Name
 	if strings.HasPrefix(name, "tag:") {
@@ -443,10 +447,6 @@ func (e *FakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInpu
 		matches = append(matches, securityGroup)
 	}
 	return matches, nil
-}
-
-func (e *FakeEC2) CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
-	panic("Not implemented")
 }
 
 func (ec2 *FakeEC2) DeleteSecurityGroup(*ec2.DeleteSecurityGroupInput) (*ec2.DeleteSecurityGroupOutput, error) {
