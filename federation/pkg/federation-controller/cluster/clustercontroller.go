@@ -1,5 +1,5 @@
 /*
-Copyright 2014 The Kubernetes Authors All rights reserved.
+Copyright 2016 The Kubernetes Authors All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"k8s.io/kubernetes/federation/apis/federation"
 	federation_v1alpha1 "k8s.io/kubernetes/federation/apis/federation/v1alpha1"
 	cluster_cache "k8s.io/kubernetes/federation/client/cache"
 	federationclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_release_1_3"
@@ -73,7 +72,7 @@ func NewclusterController(federationClient federationclientset.Interface, cluste
 				return cc.federationClient.Federation().Clusters().Watch(options)
 			},
 		},
-		&federation.Cluster{},
+		&federation_v1alpha1.Cluster{},
 		controller.NoResyncPeriodFunc(),
 		framework.ResourceEventHandlerFuncs{
 			DeleteFunc: cc.delFromClusterSet,
@@ -184,11 +183,26 @@ func (cc *ClusterController) UpdateClusterStatus() error {
 				}
 			}
 		}
+		clusterClient, found := cc.clusterKubeClientMap[cluster.Name]
+		if !found {
+			glog.Warningf("Failed to client for cluster %s", cluster.Name)
+			continue
+		}
+
+		zones, region, err := clusterClient.GetClusterZones()
+		if err != nil {
+			glog.Warningf("Failed to get zones and region for cluster %s: %v", cluster.Name, err)
+			// Don't return err here, as we want the rest of the status update to proceed.
+		} else {
+			clusterStatusNew.Zones = zones
+			clusterStatusNew.Region = region
+		}
 		cc.clusterClusterStatusMap[cluster.Name] = *clusterStatusNew
 		cluster.Status = *clusterStatusNew
 		cluster, err := cc.federationClient.Federation().Clusters().UpdateStatus(&cluster)
 		if err != nil {
-			glog.Infof("Failed to update the status of cluster: %v ,error is : %v", cluster.Name, err)
+			glog.Warningf("Failed to update the status of cluster: %v ,error is : %v", cluster.Name, err)
+			// Don't return err here, as we want to continue processing remaining clusters.
 			continue
 		}
 	}

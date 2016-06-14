@@ -24,6 +24,11 @@ import (
 	"k8s.io/kubernetes/pkg/util/wait"
 )
 
+// testTimeout is a timeout of goroutines to finish. This _should_ be just a
+// "context switch" and it should take several ms, however, Clayton says "We
+// have had flakes due to tests that assumed that 15s is long enough to sleep")
+const testTimeout = 1 * time.Minute
+
 func Test_NewGoRoutineMap_Positive_SingleOp(t *testing.T) {
 	// Arrange
 	grm := NewGoRoutineMap()
@@ -120,6 +125,9 @@ func Test_NewGoRoutineMap_Negative_SecondOpBeforeFirstCompletes(t *testing.T) {
 	if err2 == nil {
 		t.Fatalf("NewGoRoutine did not fail. Expected: <Failed to create operation with name \"%s\". An operation with that name already exists.> Actual: <no error>", operationName)
 	}
+	if !IsAlreadyExists(err2) {
+		t.Fatalf("NewGoRoutine did not return alreadyExistsError, got: %v", err2)
+	}
 }
 
 func Test_NewGoRoutineMap_Positive_ThirdOpAfterFirstCompletes(t *testing.T) {
@@ -141,6 +149,9 @@ func Test_NewGoRoutineMap_Positive_ThirdOpAfterFirstCompletes(t *testing.T) {
 	// Assert
 	if err2 == nil {
 		t.Fatalf("NewGoRoutine did not fail. Expected: <Failed to create operation with name \"%s\". An operation with that name already exists.> Actual: <no error>", operationName)
+	}
+	if !IsAlreadyExists(err2) {
+		t.Fatalf("NewGoRoutine did not return alreadyExistsError, got: %v", err2)
 	}
 
 	// Act
@@ -210,8 +221,7 @@ func Test_NewGoRoutineMap_Positive_WaitEmpty(t *testing.T) {
 	}()
 
 	// Assert
-	// Tolerate 50 milliseconds for goroutine context switches etc.
-	err := waitChannelWithTimeout(waitDoneCh, 50*time.Millisecond)
+	err := waitChannelWithTimeout(waitDoneCh, testTimeout)
 	if err != nil {
 		t.Errorf("Error waiting for GoRoutineMap.Wait: %v", err)
 	}
@@ -236,18 +246,11 @@ func Test_NewGoRoutineMap_Positive_Wait(t *testing.T) {
 		waitDoneCh <- true
 	}()
 
-	// Assert
-	// Check that Wait() really blocks
-	err = waitChannelWithTimeout(waitDoneCh, 100*time.Millisecond)
-	if err == nil {
-		t.Fatalf("Expected Wait() to block but it returned early")
-	}
-
 	// Finish the operation
 	operation1DoneCh <- true
 
-	// check that Wait() finishes in reasonable time
-	err = waitChannelWithTimeout(waitDoneCh, 50*time.Millisecond)
+	// Assert
+	err = waitChannelWithTimeout(waitDoneCh, testTimeout)
 	if err != nil {
 		t.Fatalf("Error waiting for GoRoutineMap.Wait: %v", err)
 	}

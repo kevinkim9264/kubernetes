@@ -195,6 +195,8 @@ func FuzzerFor(t *testing.T, version unversioned.GroupVersion, src rand.Source) 
 			randomQuantity := func() resource.Quantity {
 				var q resource.Quantity
 				c.Fuzz(&q)
+				// precalc the string for benchmarking purposes
+				_ = q.String()
 				return q
 			}
 			q.Limits = make(api.ResourceList)
@@ -243,6 +245,7 @@ func FuzzerFor(t *testing.T, version unversioned.GroupVersion, src rand.Source) 
 		func(m *api.DownwardAPIVolumeFile, c fuzz.Continue) {
 			m.Path = c.RandString()
 			versions := []string{"v1"}
+			m.FieldRef = &api.ObjectFieldSelector{}
 			m.FieldRef.APIVersion = versions[c.Rand.Intn(len(versions))]
 			m.FieldRef.FieldPath = c.RandString()
 		},
@@ -329,6 +332,20 @@ func FuzzerFor(t *testing.T, version unversioned.GroupVersion, src rand.Source) 
 		func(s *api.Secret, c fuzz.Continue) {
 			c.FuzzNoCustom(s) // fuzz self without calling this function again
 			s.Type = api.SecretTypeOpaque
+		},
+		func(r *api.RBDVolumeSource, c fuzz.Continue) {
+			r.RBDPool = c.RandString()
+			if r.RBDPool == "" {
+				r.RBDPool = "rbd"
+			}
+			r.RadosUser = c.RandString()
+			if r.RadosUser == "" {
+				r.RadosUser = "admin"
+			}
+			r.Keyring = c.RandString()
+			if r.Keyring == "" {
+				r.Keyring = "/etc/ceph/keyring"
+			}
 		},
 		func(pv *api.PersistentVolume, c fuzz.Continue) {
 			c.FuzzNoCustom(pv) // fuzz self without calling this function again

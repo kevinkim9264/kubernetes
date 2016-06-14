@@ -72,6 +72,19 @@ else
   NODE_INSTANCE_GROUP=""
 fi
 
+if [[ "${KUBERNETES_PROVIDER}" == "gce" ]]; then
+  set_num_migs
+  NODE_INSTANCE_GROUP=""
+  for ((i=1; i<=${NUM_MIGS}; i++)); do
+    if [[ $i == ${NUM_MIGS} ]]; then
+      # We are assigning the same mig names as create-nodes function from cluster/gce/util.sh.
+      NODE_INSTANCE_GROUP="${NODE_INSTANCE_GROUP}${NODE_INSTANCE_PREFIX}-group"
+    else
+      NODE_INSTANCE_GROUP="${NODE_INSTANCE_GROUP}${NODE_INSTANCE_PREFIX}-group-${i},"
+    fi
+  done
+fi
+
 if [[ "${KUBERNETES_PROVIDER}" == "gke" ]]; then
   detect-node-instance-group
 fi
@@ -105,7 +118,7 @@ export PATH=$(dirname "${e2e_test}"):"${PATH}"
   --repo-root="${KUBE_ROOT}" \
   --node-instance-group="${NODE_INSTANCE_GROUP:-}" \
   --prefix="${KUBE_GCE_INSTANCE_PREFIX:-e2e}" \
-  ${KUBE_OS_DISTRIBUTION:+"--os-distro=${KUBE_OS_DISTRIBUTION}"} \
+  ${OS_DISTRIBUTION:+"--os-distro=${OS_DISTRIBUTION}"} \
   ${NUM_NODES:+"--num-nodes=${NUM_NODES}"} \
   ${E2E_CLEAN_START:+"--clean-start=true"} \
   ${E2E_MIN_STARTUP_PODS:+"--minStartupPods=${E2E_MIN_STARTUP_PODS}"} \

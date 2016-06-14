@@ -35,8 +35,14 @@ KUBE_APISERVER_REQUEST_TIMEOUT=300
 PREEMPTIBLE_NODE=${PREEMPTIBLE_NODE:-false}
 PREEMPTIBLE_MASTER=${PREEMPTIBLE_MASTER:-false}
 
-OS_DISTRIBUTION=${KUBE_OS_DISTRIBUTION:-debian}
-MASTER_IMAGE=${KUBE_GCE_MASTER_IMAGE:-container-vm-v20160321}
+# TODO(#26183): Provide a way to differentiate master OS distro and node OS
+# distro.
+OS_DISTRIBUTION=${KUBE_OS_DISTRIBUTION:-gci}
+# By default a cluster will be started with the master on GCI and nodes on
+# containervm. If you are updating the containervm version, update this
+# variable.
+CVM_VERSION=container-v1-3-v20160604
+MASTER_IMAGE=${KUBE_GCE_MASTER_IMAGE:-}
 MASTER_IMAGE_PROJECT=${KUBE_GCE_MASTER_PROJECT:-google-containers}
 NODE_IMAGE=${KUBE_GCE_NODE_IMAGE:-"${MASTER_IMAGE}"}
 NODE_IMAGE_PROJECT=${KUBE_GCE_NODE_PROJECT:-"${MASTER_IMAGE_PROJECT}"}
@@ -58,9 +64,10 @@ TERMINATED_POD_GC_THRESHOLD=${TERMINATED_POD_GC_THRESHOLD:-100}
 # Extra docker options for nodes.
 EXTRA_DOCKER_OPTS="${EXTRA_DOCKER_OPTS:-}"
 
-# Increase the sleep interval value if concerned about API rate limits. 3, in seconds, is the default.
-POLL_SLEEP_INTERVAL=3
 SERVICE_CLUSTER_IP_RANGE="10.0.0.0/16"  # formerly PORTAL_NET
+
+# When set to true, Docker Cache is enabled by default as part of the cluster bring up.
+ENABLE_DOCKER_REGISTRY_CACHE=true
 
 # Optional: Deploy a L7 loadbalancer controller to fulfill Ingress requests:
 #   glbc           - CE L7 Load Balancer Controller
@@ -129,10 +136,11 @@ ENABLE_CLUSTER_UI="${KUBE_ENABLE_CLUSTER_UI:-true}"
 ENABLE_NODE_PROBLEM_DETECTOR="${KUBE_ENABLE_NODE_PROBLEM_DETECTOR:-true}"
 
 # Optional: Create autoscaler for cluster's nodes.
-ENABLE_NODE_AUTOSCALER="${KUBE_ENABLE_NODE_AUTOSCALER:-false}"
-if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
+ENABLE_CLUSTER_AUTOSCALER="${KUBE_ENABLE_CLUSTER_AUTOSCALER:-false}"
+if [[ "${ENABLE_CLUSTER_AUTOSCALER}" == "true" ]]; then
   AUTOSCALER_MIN_NODES="${KUBE_AUTOSCALER_MIN_NODES:-}"
   AUTOSCALER_MAX_NODES="${KUBE_AUTOSCALER_MAX_NODES:-}"
+  AUTOSCALER_ENABLE_SCALE_DOWN="${KUBE_AUTOSCALER_ENABLE_SCALE_DOWN:-false}"
 fi
 
 # If we included ResourceQuota, we should keep it at the end of the list to prevent incremeting quota usage prematurely.
@@ -158,3 +166,10 @@ HAIRPIN_MODE="${HAIRPIN_MODE:-promiscuous-bridge}" # promiscuous-bridge, hairpin
 
 # Optional: if set to true, kube-up will configure the cluster to run e2e tests.
 E2E_STORAGE_TEST_ENVIRONMENT=${KUBE_E2E_STORAGE_TEST_ENVIRONMENT:-false}
+
+# Optional: if set to true, a image puller is deployed. Only for use in e2e clusters.
+# TODO: Pipe this through GKE e2e clusters once we know it helps.
+PREPULL_E2E_IMAGES="${PREPULL_E2E_IMAGES:-true}"
+
+# Evict pods whenever compute resource availability on the nodes gets below a threshold.
+EVICTION_HARD="${EVICTION_HARD:-memory.available<100Mi}"

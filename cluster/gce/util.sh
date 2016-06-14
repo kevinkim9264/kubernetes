@@ -31,23 +31,21 @@ else
 fi
 
 if [[ "${OS_DISTRIBUTION}" == "gci" ]]; then
-  # If the master or node image is not set, we use the latest GCI dev image.
-  # Otherwise, we respect whatever set by the user.
+  # If the master image is not set, we use the latest GCI dev image.
+  # Otherwise, we respect whatever is set by the user.
   gci_images=( $(gcloud compute images list --project google-containers \
-      --regexp='gci-dev.*' --format='value(name)') )
-  if [[ -z "${KUBE_GCE_MASTER_IMAGE:-}" ]]; then
-    MASTER_IMAGE="${gci_images[0]}"
-    MASTER_IMAGE_PROJECT="google-containers"
-  fi
-  if [[ -z "${KUBE_GCE_NODE_IMAGE:-}" ]]; then
-    NODE_IMAGE="${gci_images[0]}"
-    NODE_IMAGE_PROJECT="google-containers"
-  fi
-
+      --show-deprecated --no-standard-images --sort-by='~creationTimestamp' \
+      --regexp='gci-[a-z]+-53-.*' --format='table[no-heading](name)') )
+  MASTER_IMAGE=${KUBE_GCE_MASTER_IMAGE:-"${gci_images[0]}"}
+  MASTER_IMAGE_PROJECT=${KUBE_GCE_MASTER_PROJECT:-google-containers}
+  # The default node image when using GCI is still the Debian based ContainerVM
+  # until GCI gets validated for node usage.
+  NODE_IMAGE=${KUBE_GCE_NODE_IMAGE:-${CVM_VERSION}}
+  NODE_IMAGE_PROJECT=${KUBE_GCE_NODE_PROJECT:-google-containers}
 fi
 
 # Verfiy cluster autoscaler configuration.
-if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
+if [[ "${ENABLE_CLUSTER_AUTOSCALER}" == "true" ]]; then
   if [ -z $AUTOSCALER_MIN_NODES ]; then
     echo "AUTOSCALER_MIN_NODES not set."
     exit 1
@@ -192,6 +190,10 @@ function set-preferred-region() {
     KUBE_ADDON_REGISTRY="${preferred}.gcr.io/google_containers"
   else
     KUBE_ADDON_REGISTRY="gcr.io/google_containers"
+  fi
+
+  if [[ "${ENABLE_DOCKER_REGISTRY_CACHE:-}" == "true" ]]; then
+    DOCKER_REGISTRY_MIRROR_URL="https://${preferred}-mirror.gcr.io"
   fi
 }
 
@@ -779,7 +781,7 @@ function create-nodes() {
         create "${group_name}" \
         --project "${PROJECT}" \
         --zone "${ZONE}" \
-        --base-instance-name "${NODE_INSTANCE_PREFIX}" \
+        --base-instance-name "${group_name}" \
         --size "${this_mig_size}" \
         --template "$template_name" || true;
     gcloud compute instance-groups managed wait-until-stable \
@@ -804,14 +806,14 @@ function create-cluster-autoscaler-mig-config() {
   # must be greater or equal to the number of migs. 
   if [[ ${AUTOSCALER_MIN_NODES} < ${NUM_MIGS} ]]; then
     echo "AUTOSCALER_MIN_NODES must be greater or equal ${NUM_MIGS}"
-    exit 2    
+    exit 2
   fi
 
   # Each MIG must have at least one node, so the min number of nodes
   # must be greater or equal to the number of migs. 
   if [[ ${AUTOSCALER_MAX_NODES} < ${NUM_MIGS} ]]; then
     echo "AUTOSCALER_MAX_NODES must be greater or equal ${NUM_MIGS}"
-    exit 2    
+    exit 2
   fi
 
   # The code assumes that the migs were created with create-nodes 
@@ -837,6 +839,8 @@ function create-cluster-autoscaler-mig-config() {
     local mig_url="https://www.googleapis.com/compute/v1/projects/${PROJECT}/zones/${ZONE}/instanceGroups/${group_name}"
     AUTOSCALER_MIG_CONFIG="${AUTOSCALER_MIG_CONFIG} --nodes=${this_mig_min}:${this_mig_max}:${mig_url}"
   done
+
+  AUTOSCALER_MIG_CONFIG="${AUTOSCALER_MIG_CONFIG} --scale-down-enabled=${AUTOSCALER_ENABLE_SCALE_DOWN}"
 }
 
 # Assumes:
@@ -844,12 +848,12 @@ function create-cluster-autoscaler-mig-config() {
 # - NODE_INSTANCE_PREFIX
 # - PROJECT
 # - ZONE
-# - ENABLE_NODE_AUTOSCALER
+# - ENABLE_CLUSTER_AUTOSCALER
 # - AUTOSCALER_MAX_NODES
 # - AUTOSCALER_MIN_NODES
 function create-autoscaler-config() {
   # Create autoscaler for nodes configuration if requested
-  if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
+  if [[ "${ENABLE_CLUSTER_AUTOSCALER}" == "true" ]]; then
     create-cluster-autoscaler-mig-config
     echo "Using autoscaler config: ${AUTOSCALER_MIG_CONFIG}"
   fi
@@ -896,7 +900,18 @@ function check-cluster() {
   export CONTEXT="${PROJECT}_${INSTANCE_PREFIX}"
   (
    umask 077
+
+   # Update the user's kubeconfig to include credentials for this apiserver.
    create-kubeconfig
+
+   if [[ "${FEDERATION:-}" == "true" ]]; then
+       # Create a kubeconfig with credentials for this apiserver. We will later use
+       # this kubeconfig to create a secret which the federation control plane can
+       # use to talk to this apiserver.
+       KUBECONFIG_DIR=$(dirname ${KUBECONFIG:-$DEFAULT_KUBECONFIG})
+       KUBECONFIG="${KUBECONFIG_DIR}/federation/kubernetes-apiserver/${CONTEXT}/kubeconfig" \
+         create-kubeconfig
+   fi
   )
 
   # ensures KUBECONFIG is set

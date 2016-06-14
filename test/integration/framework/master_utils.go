@@ -35,6 +35,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/policy"
+	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/apiserver"
 	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/client/record"
@@ -48,9 +49,10 @@ import (
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
 	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/plugin/pkg/admission/admit"
+
+	"github.com/pborman/uuid"
 )
 
 const (
@@ -153,7 +155,10 @@ func startMasterOrDie(masterConfig *master.Config) (*master.Master, *httptest.Se
 func NewMasterConfig() *master.Config {
 	config := storagebackend.Config{
 		ServerList: []string{"http://127.0.0.1:4001"},
-		Prefix:     etcdtest.PathPrefix(),
+		// TODO: this is a quick hack to work around #27179. It
+		// conveniently exercises the prefix code, so maybe it's worth
+		// leaving in.
+		Prefix: uuid.New(),
 	}
 
 	negotiatedSerializer := NewSingleContentTypeSerializer(api.Scheme, testapi.Default.Codec(), runtime.ContentTypeJSON)
@@ -183,6 +188,10 @@ func NewMasterConfig() *master.Config {
 		unversioned.GroupResource{Group: policy.GroupName, Resource: genericapiserver.AllResources},
 		"",
 		NewSingleContentTypeSerializer(api.Scheme, testapi.Policy.Codec(), runtime.ContentTypeJSON))
+	storageFactory.SetSerializer(
+		unversioned.GroupResource{Group: rbac.GroupName, Resource: genericapiserver.AllResources},
+		"",
+		NewSingleContentTypeSerializer(api.Scheme, testapi.Rbac.Codec(), runtime.ContentTypeJSON))
 
 	return &master.Config{
 		Config: &genericapiserver.Config{
@@ -193,6 +202,7 @@ func NewMasterConfig() *master.Config {
 			Authorizer:              apiserver.NewAlwaysAllowAuthorizer(),
 			AdmissionControl:        admit.NewAlwaysAdmit(),
 			Serializer:              api.Codecs,
+			EnableWatchCache:        true,
 		},
 		KubeletClient: kubeletclient.FakeKubeletClient{},
 	}

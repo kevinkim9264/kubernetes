@@ -28,6 +28,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/gcfg.v1"
+
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/service"
 	"k8s.io/kubernetes/pkg/api/unversioned"
@@ -47,7 +49,6 @@ import (
 	container "google.golang.org/api/container/v1"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/cloud/compute/metadata"
-	"gopkg.in/gcfg.v1"
 )
 
 const (
@@ -97,6 +98,31 @@ type Config struct {
 		NodeTags    []string `gcfg:"node-tags"`
 		Multizone   bool     `gcfg:"multizone"`
 	}
+}
+
+// Disks is interface for manipulation with GCE PDs.
+type Disks interface {
+	// AttachDisk attaches given disk to given instance. Current instance
+	// is used when instanceID is empty string.
+	AttachDisk(diskName, instanceID string, readOnly bool) error
+
+	// DetachDisk detaches given disk to given instance. Current instance
+	// is used when instanceID is empty string.
+	DetachDisk(devicePath, instanceID string) error
+
+	// DiskIsAttached checks if a disk is attached to the given node.
+	DiskIsAttached(diskName, instanceID string) (bool, error)
+
+	// CreateDisk creates a new PD with given properties. Tags are serialized
+	// as JSON into Description field.
+	CreateDisk(name string, zone string, sizeGb int64, tags map[string]string) error
+
+	// DeleteDisk deletes PD.
+	DeleteDisk(diskToDelete string) error
+
+	// GetAutoLabelsForPD returns labels to apply to PeristentVolume
+	// representing this PD, namely failure domain and zone.
+	GetAutoLabelsForPD(name string) (map[string]string, error)
 }
 
 type instRefSlice []*compute.InstanceReference
@@ -252,7 +278,7 @@ func newGCECloud(config io.Reader) (*GCECloud, error) {
 			}
 		}
 		if cfg.Global.TokenURL != "" {
-			tokenSource = newAltTokenSource(cfg.Global.TokenURL, cfg.Global.TokenBody)
+			tokenSource = NewAltTokenSource(cfg.Global.TokenURL, cfg.Global.TokenBody)
 		}
 		nodeTags = cfg.Global.NodeTags
 		if cfg.Global.Multizone {
@@ -401,19 +427,33 @@ func (gce *GCECloud) waitForOp(op *compute.Operation, getOperation func(operatio
 		return getErrorFromOp(op)
 	}
 
+	opStart := time.Now()
 	opName := op.Name
 	return wait.Poll(operationPollInterval, operationPollTimeoutDuration, func() (bool, error) {
 		start := time.Now()
 		gce.operationPollRateLimiter.Accept()
 		duration := time.Now().Sub(start)
 		if duration > 5*time.Second {
-			glog.Infof("pollOperation: waited %v for %v", duration, opName)
+			glog.Infof("pollOperation: throttled %v for %v", duration, opName)
 		}
 		pollOp, err := getOperation(opName)
 		if err != nil {
 			glog.Warningf("GCE poll operation %s failed: pollOp: [%v] err: [%v] getErrorFromOp: [%v]", opName, pollOp, err, getErrorFromOp(pollOp))
 		}
-		return opIsDone(pollOp), getErrorFromOp(pollOp)
+		done := opIsDone(pollOp)
+		if done {
+			duration := time.Now().Sub(opStart)
+			if duration > 1*time.Minute {
+				// Log the JSON. It's cleaner than the %v structure.
+				enc, err := pollOp.MarshalJSON()
+				if err != nil {
+					glog.Warningf("waitForOperation: long operation (%v): %v (failed to encode to JSON: %v)", duration, pollOp, err)
+				} else {
+					glog.Infof("waitForOperation: long operation (%v): %v", duration, string(enc))
+				}
+			}
+		}
+		return done, getErrorFromOp(pollOp)
 	})
 }
 
@@ -480,7 +520,7 @@ func isHTTPErrorCode(err error, code int) bool {
 // Due to an interesting series of design decisions, this handles both creating
 // new load balancers and updating existing load balancers, recognizing when
 // each is needed.
-func (gce *GCECloud) EnsureLoadBalancer(apiService *api.Service, hostNames []string, annotations map[string]string) (*api.LoadBalancerStatus, error) {
+func (gce *GCECloud) EnsureLoadBalancer(apiService *api.Service, hostNames []string) (*api.LoadBalancerStatus, error) {
 	if len(hostNames) == 0 {
 		return nil, fmt.Errorf("Cannot EnsureLoadBalancer() with no hosts")
 	}
@@ -501,7 +541,7 @@ func (gce *GCECloud) EnsureLoadBalancer(apiService *api.Service, hostNames []str
 	affinityType := apiService.Spec.SessionAffinity
 
 	serviceName := types.NamespacedName{Namespace: apiService.Namespace, Name: apiService.Name}
-	glog.V(2).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v)", loadBalancerName, gce.region, loadBalancerIP, portStr, hosts, serviceName, annotations)
+	glog.V(2).Infof("EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v)", loadBalancerName, gce.region, loadBalancerIP, portStr, hosts, serviceName, apiService.Annotations)
 
 	// Check if the forwarding rule exists, and if so, what its IP is.
 	fwdRuleExists, fwdRuleNeedsUpdate, fwdRuleIP, err := gce.forwardingRuleNeedsUpdate(loadBalancerName, gce.region, loadBalancerIP, ports)
@@ -611,7 +651,7 @@ func (gce *GCECloud) EnsureLoadBalancer(apiService *api.Service, hostNames []str
 	// is because the forwarding rule is used as the indicator that the load
 	// balancer is fully created - it's what getLoadBalancer checks for.
 	// Check if user specified the allow source range
-	sourceRanges, err := service.GetLoadBalancerSourceRanges(annotations)
+	sourceRanges, err := service.GetLoadBalancerSourceRanges(apiService)
 	if err != nil {
 		return nil, err
 	}

@@ -34,9 +34,12 @@ function fetch_output_tars() {
 }
 
 function fetch_server_version_tars() {
-    local -r build_version="v$(gcloud ${CMD_GROUP:-} container get-server-config --project=${PROJECT} --zone=${ZONE}  --format='value(defaultClusterVersion)')"
-    fetch_tars_from_gcs "release" "${build_version}"
-    unpack_binaries
+    local -r server_version="$(gcloud ${CMD_GROUP:-} container get-server-config --project=${PROJECT} --zone=${ZONE}  --format='value(defaultClusterVersion)')"
+    # Use latest build of the server version's branch for test files.
+    fetch_published_version_tars "ci/latest-${server_version:0:3}"
+    # Unset cluster api version; we want to use server default for the cluster
+    # version.
+    unset CLUSTER_API_VERSION
 }
 
 # Use a published version like "ci/latest" (default), "release/latest",
@@ -76,16 +79,16 @@ function unpack_binaries() {
     tar -xzf kubernetes-test.tar.gz
 }
 
-# GCP Project to fetch Trusty images.
-function get_trusty_image_project() {
+# GCP Project to fetch GCI images.
+function get_gci_image_project() {
   local project=""
   # Retry the gsutil command a couple times to mitigate the effect of
   # transient server errors.
   for n in $(seq 3); do
-    project="$(gsutil cat "gs://trusty-images/image-project.txt")" && break || sleep 1
+    project="$(gsutil cat "gs://gci-staging/image-project.txt")" && break || sleep 1
   done
   if [[ -z "${project}" ]]; then
-    echo "Failed to find the image project for Trusty images."
+    echo "Failed to find the image project for GCI images."
     exit 1
   fi
   echo "${project}"
@@ -94,19 +97,19 @@ function get_trusty_image_project() {
   rm -rf .gsutil &> /dev/null
 }
 
-# Get the latest Trusty image for a Jenkins job.
-function get_latest_trusty_image() {
+# Get the latest GCI image of a type.
+function get_latest_gci_image() {
     local image_project="$1"
     local image_type="$2"
     local image_index=""
     if [[ "${image_type}" == head ]]; then
-      image_index="trusty-head"
+      image_index="gci-head"
     elif [[ "${image_type}" == dev ]]; then
-      image_index="trusty-dev"
+      image_index="gci-dev"
     elif [[ "${image_type}" == beta ]]; then
-      image_index="trusty-beta"
+      image_index="gci-beta"
     elif [[ "${image_type}" == stable ]]; then
-      image_index="trusty-stable"
+      image_index="gci-stable"
     fi
 
     local image=""
@@ -116,7 +119,7 @@ function get_latest_trusty_image() {
       image="$(gsutil cat "gs://${image_project}/image-indices/latest-base-image-${image_index}")" && break || sleep 1
     done
     if [[ -z "${image}" ]]; then
-      echo "Failed to find Trusty image for ${image_type}"
+      echo "Failed to find GCI image for ${image_type}"
       exit 1
     fi
     echo "${image}"
@@ -140,9 +143,7 @@ function install_google_cloud_sdk_tarball() {
 # bringing the cluster down.
 function dump_cluster_logs_and_exit() {
     local -r exit_status=$?
-    if [[ -x "cluster/log-dump.sh"  ]]; then
-        ./cluster/log-dump.sh "${ARTIFACTS}"
-    fi
+    dump_cluster_logs
     if [[ "${E2E_DOWN,,}" == "true" ]]; then
       # If we tried to bring the cluster up, make a courtesy attempt
       # to bring the cluster down so we're not leaving resources
@@ -152,6 +153,14 @@ function dump_cluster_logs_and_exit() {
       go run ./hack/e2e.go ${E2E_OPT:-} -v --down || true
     fi
     exit ${exit_status}
+}
+
+# Only call after attempting to bring the cluster up. Don't call after
+# bringing the cluster down.
+function dump_cluster_logs() {
+    if [[ -x "cluster/log-dump.sh"  ]]; then
+        ./cluster/log-dump.sh "${ARTIFACTS}"
+    fi
 }
 
 ### Pre Set Up ###
@@ -180,13 +189,13 @@ if [[ -n "${CLOUDSDK_BUCKET:-}" ]]; then
     export CLOUDSDK_CONFIG=/var/lib/jenkins/.config/gcloud
 fi
 
-# We get the image project and name for Trusty dynamically.
-if [[ -n "${JENKINS_TRUSTY_IMAGE_TYPE:-}" ]]; then
-  trusty_image_project="$(get_trusty_image_project)"
-  trusty_image="$(get_latest_trusty_image "${trusty_image_project}" "${JENKINS_TRUSTY_IMAGE_TYPE}")"
-  export KUBE_GCE_MASTER_PROJECT="${trusty_image_project}"
-  export KUBE_GCE_MASTER_IMAGE="${trusty_image}"
-  export KUBE_OS_DISTRIBUTION="trusty"
+# We get the image project and name for GCI dynamically.
+if [[ -n "${JENKINS_GCI_IMAGE_TYPE:-}" ]]; then
+  gci_image_project="$(get_gci_image_project)"
+  gci_image="$(get_latest_gci_image "${gci_image_project}" "${JENKINS_GCI_IMAGE_TYPE}")"
+  export KUBE_GCE_MASTER_PROJECT="${gci_image_project}"
+  export KUBE_GCE_MASTER_IMAGE="${gci_image}"
+  export KUBE_OS_DISTRIBUTION="gci"
 fi
 
 function e2e_test() {
@@ -257,12 +266,19 @@ case "${KUBERNETES_PROVIDER}" in
             cp /var/lib/jenkins/gce_keys/google_compute_engine ${WORKSPACE}/.ssh/
             cp /var/lib/jenkins/gce_keys/google_compute_engine.pub ${WORKSPACE}/.ssh/
         fi
-        if [[ ! -f ${WORKSPACE}/.ssh/google_compute_engine ]]; then
-            echo "google_compute_engine ssh key missing!"
+        echo 'Checking existence of private ssh key'
+        gce_key="${WORKSPACE}/.ssh/google_compute_engine"
+        if [[ ! -f "${gce_key}" || ! -f "${gce_key}.pub" ]]; then
+            echo 'google_compute_engine ssh key missing!'
             exit 1
         fi
+        echo "Checking presence of public key in ${PROJECT}"
+        if ! gcloud compute --project="${PROJECT}" project-info describe |
+             grep "$(cat "${gce_key}.pub")" >/dev/null; then
+            echo 'Uploading public ssh key to project metadata...'
+            gcloud compute --project="${PROJECT}" config-ssh
+        fi
         ;;
-
     default)
         echo "Not copying ssh keys for ${KUBERNETES_PROVIDER}"
         ;;
@@ -323,11 +339,7 @@ fi
 # GINKGO_UPGRADE_TESTS_ARGS for the test run.
 #
 # JENKINS_USE_SKEW_TESTS=true will run tests from the skewed version rather
-# than the original version; it is mutuall exclusive with
-# JENKINS_USE_SKEW_KUBECTL.
-#
-# JENKINS_USE_SKEW_KUBECTL=true will use the skewed version of Kubectl; it is
-# mutually exclusive with JENKINS_USE_SKEW_TESTS.
+# than the original version.
 if [[ -n "${JENKINS_PUBLISHED_SKEW_VERSION:-}" ]]; then
     cd ..
     mv kubernetes kubernetes_old
@@ -342,10 +354,12 @@ if [[ -n "${JENKINS_PUBLISHED_SKEW_VERSION:-}" ]]; then
     if [[ "${JENKINS_USE_SKEW_TESTS:-}" != "true" ]]; then
         # Back out into the old tests now that we've downloaded & maybe upgraded.
         cd ../kubernetes_old
-        if [[ "${JENKINS_USE_SKEW_KUBECTL:-}" == "true" ]]; then
-            # Append kubectl-path of skewed kubectl to test args
-            GINKGO_TEST_ARGS="${GINKGO_TEST_ARGS:-} --kubectl-path=$(pwd)/../kubernetes/cluster/kubectl.sh"
-        fi
+	# Append kubectl-path of skewed kubectl to test args, since we always
+	# want that to use the skewed kubectl version:
+	#
+	# - for upgrade jobs, we want kubectl to be at the same version as master.
+	# - for client skew tests, we want to use the skewed kubectl (that's what we're testing).
+        GINKGO_TEST_ARGS="${GINKGO_TEST_ARGS:-} --kubectl-path=$(pwd)/../kubernetes/cluster/kubectl.sh"
     fi
 fi
 
@@ -364,7 +378,11 @@ if [[ "${USE_KUBEMARK:-}" == "true" ]]; then
   # If start-kubemark fails, we trigger empty set of tests that would trigger storing logs from the base cluster.
   ./test/kubemark/start-kubemark.sh || dump_cluster_logs_and_exit
   # Similarly, if tests fail, we trigger empty set of tests that would trigger storing logs from the base cluster.
-  ./test/kubemark/run-e2e-tests.sh --ginkgo.focus="${KUBEMARK_TESTS:-starting\s30\spods}" "${KUBEMARK_TEST_ARGS:-}" || dump_cluster_logs_and_exit
+  # We intentionally overwrite the exit-code from `run-e2e-tests.sh` because we want jenkins to look at the
+  # junit.xml results for test failures and not process the exit code.  This is needed by jenkins to more gracefully
+  # handle blocking the merge queue as a result of test failure flakes.  Infrastructure failures should continue to
+  # exit non-0.
+  ./test/kubemark/run-e2e-tests.sh --ginkgo.focus="${KUBEMARK_TESTS:-starting\s30\spods}" "${KUBEMARK_TEST_ARGS:-}" || dump_cluster_logs
   ./test/kubemark/stop-kubemark.sh
   NUM_NODES=${NUM_NODES_BKP}
   MASTER_SIZE=${MASTER_SIZE_BKP}
