@@ -453,13 +453,8 @@ func (ec2 *FakeEC2) DeleteSecurityGroup(*ec2.DeleteSecurityGroupInput) (*ec2.Del
 }
 
 func (e *FakeEC2) AuthorizeSecurityGroupIngress(request *ec2.AuthorizeSecurityGroupIngressInput) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
-	glog.Errorf("e.aws.securityGroups: %s", e.aws.securityGroups)
-	glog.Errorf("request: %s", request)
-	authorizeSecurityGroupIngressCalledCount += 1
 	for _, securityGroup := range e.aws.securityGroups {
-		glog.Errorf("securityGroup.GroupId: %s,  request.GroupId: %s", securityGroup.GroupId, request.GroupId)
 		if *securityGroup.GroupId == *request.GroupId {
-			glog.Errorf("We are adding rule!: %s into securityGroup: %s", request.IpPermissions, securityGroup)
 			for _, permission := range request.IpPermissions {
 				for _, existingPermission := range securityGroup.IpPermissions {
 					if ipPermissionExists(permission, existingPermission, false) {
@@ -1266,9 +1261,6 @@ func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
 }
 
 func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
-	// Reset authorizeSecurityGroupIngressCalledCount to 0
-	authorizeSecurityGroupIngressCalledCount = 0
-
 	// Instantiating a fake AWSServices, and AWSCloud.
 	awsServices := NewFakeAWSServices()
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
@@ -1325,14 +1317,14 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	c.cfg.Global.DisableSecurityGroupIngress = false
 	c.cfg.Global.EnableSharedSecurityGroupIngress = true
 
-	c.updateInstanceSharedSecurityGroups(*ssgId, awsServices.instances)
+	c.updateInstanceSharedSecurityGroups("shared-security-group-id", awsServices.instances)
 
 	// Now check if "open to every protocol" rule has been successfully added to the security group
 	assert.Equal(t, "-1", *awsServices.securityGroups[0].IpPermissions[0].IpProtocol)
 	assert.Equal(t, "shared-security-group-id", *awsServices.securityGroups[0].IpPermissions[0].UserIdGroupPairs[0].GroupId)
 
 	// Now try updateInstanceSharedSecurityGroups again and check that AuthorizeSecurityGroupIngress is never called
-	err := c.updateInstanceSharedSecurityGroups(*ssgId, awsServices.instances)
+	err := c.updateInstanceSharedSecurityGroups("shared-security-group-id", awsServices.instances)
 	assert.Equal(t, nil, err)
 }
 
