@@ -1900,6 +1900,12 @@ func (s *AWSCloud) ensureSecurityGroup(name string, description string) (string,
 	return groupID, nil
 }
 
+func (s *AWSCloud) ensureSharedSecurityGroup() (string, error) {
+	sgName := SharedSecurityGroupNamePrefix + s.getClusterName()
+	sgDescription := fmt.Sprintf("SharedSecurity group for Kubernetes ELBs %s", s.getClusterName())
+	return s.ensureSecurityGroup(sgName, sgDescription)
+}
+
 // createTags calls EC2 CreateTags, but adds retry-on-failure logic
 // We retry mainly because if we create an object, we cannot tag it until it is "fully created" (eventual consistency)
 // The error code varies though (depending on what we are tagging), so we simply retry on all errors
@@ -2250,13 +2256,11 @@ func (s *AWSCloud) EnsureLoadBalancer(apiService *api.Service, hosts []string, a
 	var sharedSecurityGroupID string
 	if s.cfg.Global.DisableSecurityGroupIngress == false && s.cfg.Global.EnableSharedSecurityGroupIngress {
 		// Create the shared security group ID for local reference. (actually create one if doesn't exist)
-		// Currently, I am assuming the s.getClusterName() will return unique cluster name for each KubeCluster.
-		sgName, sgDescription := s.getSSGInfo()
 		// Returns corresponding securityGroupID if exists. If not, it creates a securityGroup and returns ID.
 		// Note that we don't set any permission/rule for the shared security group.
 		// As long as the shared security group is attached to the ELB, traffic from the ELB will be allowed to
 		// instances.
-		sharedSecurityGroupID, err = s.ensureSecurityGroup(sgName, sgDescription)
+		sharedSecurityGroupID, err = s.ensureSharedSecurityGroup()
 		if err != nil {
 			glog.Error("Error creating load balancer security group: ", err)
 			return nil, err
@@ -2636,8 +2640,7 @@ func (s *AWSCloud) EnsureLoadBalancerDeleted(service *api.Service) error {
 		var ssgID string
 		var err error
 		if s.cfg.Global.DisableSecurityGroupIngress == false && s.cfg.Global.EnableSharedSecurityGroupIngress {
-			sgName, sgDescription := s.getSSGInfo()
-			ssgID, err = s.ensureSecurityGroup(sgName, sgDescription)
+			ssgID, err = s.ensureSharedSecurityGroup()
 			if err != nil {
 				glog.Warningf("Error creating shared security group: ", err)
 			}
