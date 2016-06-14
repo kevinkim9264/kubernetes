@@ -37,7 +37,6 @@ import (
 )
 
 const TestClusterId = "clusterid.test"
-var authorizeSecurityGroupIngressCalledCount = 0
 
 func TestReadAWSCloudConfig(t *testing.T) {
 	tests := []struct {
@@ -429,7 +428,6 @@ func (e *FakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInpu
 			}
 		}
 		if request.Filters != nil {
-			glog.Errorf("kevin: filters: %s", request.Filters)
 			allMatch := true
 			for _, filter := range request.Filters {
 				if !securityGroupMatchesFilter(securityGroup, filter) {
@@ -446,8 +444,7 @@ func (e *FakeEC2) DescribeSecurityGroups(request *ec2.DescribeSecurityGroupsInpu
 	return matches, nil
 }
 
-
-func (e *FakeEC2) CreateSecurityGroup(request *ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
+func (e *FakeEC2) CreateSecurityGroup(*ec2.CreateSecurityGroupInput) (*ec2.CreateSecurityGroupOutput, error) {
 	panic("Not implemented")
 }
 
@@ -762,8 +759,6 @@ func TestNodeAddresses(t *testing.T) {
 	testHasNodeAddress(t, addrs4, api.NodeInternalIP, "192.168.0.2")
 	testHasNodeAddress(t, addrs4, api.NodeExternalIP, "2.3.4.5")
 }
-
-
 
 func TestGetRegion(t *testing.T) {
 	aws := mockAvailabilityZone("us-west-2e")
@@ -1242,6 +1237,7 @@ func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	awsServices := NewFakeAWSServices()
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
+
 	c.EnsureLoadBalancerDeleted(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}})
 }
 
@@ -1262,17 +1258,11 @@ func TestDescribeLoadBalancerOnGet(t *testing.T) {
 }
 
 func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
-	glog.Errorf("Start of TestDescribeLoadBalance")
 	awsServices := NewFakeAWSServices()
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
 
-	status, error := c.EnsureLoadBalancer(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}}, []string{}, map[string]string{})
-	if error != nil {
-		glog.Errorf("Knew EnsureLoadBalancer throw error: %v, because it didn't mock some of necessary methods", error)
-	}
-	glog.Errorf("Status of this is: %s", status)
-	glog.Errorf("End of TestDescribeLoadBalance")
+	c.EnsureLoadBalancer(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}}, []string{}, map[string]string{})
 }
 
 func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
@@ -1312,8 +1302,6 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 		},
 	}
 
-	ssgId := aws.String("shared-security-group-id")
-
 	// Make sure this instance has the security group we intend to test a.k.a sgInput security group
 	groupIdentifier := ec2.GroupIdentifier {
 		GroupId: awsServices.securityGroups[0].GroupId,
@@ -1336,16 +1324,11 @@ func TestUpdateInstanceSharedSecurityGroups(t *testing.T) {
 	c.cfg.Global.DisableSecurityGroupIngress = false
 	c.cfg.Global.EnableSharedSecurityGroupIngress = true
 
-	glog.Errorf("Calling updateinstancesharedsecuritygroups!!!!")
-	glog.Errorf("ssgId we are adding: %s", *ssgId)
 	c.updateInstanceSharedSecurityGroups(*ssgId, awsServices.instances)
 
-	glog.Errorf("After updateInstanceShared, permissions of sg[0]: %s", awsServices.securityGroups[0].IpPermissions)
-	glog.Errorf("After updateInstanceShared, permissions of sg[1](shared securitygroup shouldn't be updated): %s", awsServices.securityGroups[1].IpPermissions)
 	// Now check if "open to every protocol" rule has been successfully added to the security group
-	glog.Errorf("sg1.IpPermissions: %s", awsServices.securityGroups[0].IpPermissions)
 	assert.Equal(t, "-1", *awsServices.securityGroups[0].IpPermissions[0].IpProtocol)
-	assert.Equal(t, *ssgId, *awsServices.securityGroups[0].IpPermissions[0].UserIdGroupPairs[0].GroupId)
+	assert.Equal(t, "shared-security-group-id", *awsServices.securityGroups[0].IpPermissions[0].UserIdGroupPairs[0].GroupId)
 
 	// Now try updateInstanceSharedSecurityGroups again and check that AuthorizeSecurityGroupIngress is never called
 	err := c.updateInstanceSharedSecurityGroups(*ssgId, awsServices.instances)
