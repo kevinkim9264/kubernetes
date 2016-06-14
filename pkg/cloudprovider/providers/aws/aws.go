@@ -273,30 +273,30 @@ var _ Volumes = &AWSCloud{}
 
 type AWSCloudConfig struct {
 	Global struct {
-		       // TODO: Is there any use for this?  We can get it from the instance metadata service
-		       // Maybe if we're not running on AWS, e.g. bootstrap; for now it is not very useful
-		       Zone string
+		// TODO: Is there any use for this?  We can get it from the instance metadata service
+		// Maybe if we're not running on AWS, e.g. bootstrap; for now it is not very useful
+		Zone string
 
-		       KubernetesClusterTag string
+		KubernetesClusterTag string
 
-		       //The aws provider creates an inbound rule per load balancer on the node security
-		       //group. However, this can run into the AWS security group rule limit of 50 if
-		       //many LoadBalancers are created.
-		       //
-		       //This flag disables the automatic ingress creation. It requires that the user
-		       //has setup a rule that allows inbound traffic on kubelet ports from the
-		       //local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
-		       DisableSecurityGroupIngress bool
+		//The aws provider creates an inbound rule per load balancer on the node security
+		//group. However, this can run into the AWS security group rule limit of 50 if
+		//many LoadBalancers are created.
+		//
+		//This flag disables the automatic ingress creation. It requires that the user
+		//has setup a rule that allows inbound traffic on kubelet ports from the
+		//local VPC subnet (so load balancers can access it). E.g. 10.82.0.0/16 30000-32000.
+		DisableSecurityGroupIngress bool
 
-		       //This flag enables the automatic shared security group ingress creation.
-		       //Please check below to see the full mappings from flags to behavior
-		       EnableSharedSecurityGroupIngress bool
+		//This flag enables the automatic shared security group ingress creation.
+		//Please check below to see the full mappings from flags to behavior
+		EnableSharedSecurityGroupIngress bool
 
-		       //DisableSecurityGroupIngres=false, EnableSharedSecurityGroupIngress=false: insert security group ingress for nodes (default)
-		       //DisableSecurityGroupIngres=false, EnableSharedSecurityGroupIngress=true: insert shared security group ingress for nodes
-		       //DisableSecurityGroupIngres=true, EnableSharedSecurityGroupIngress=false: not inserting any ingress rules
-		       //DisableSecurityGroupIngress=true, EnableSharedSecurityGroupIngress=true: error
-	       }
+		//DisableSecurityGroupIngres=false, EnableSharedSecurityGroupIngress=false: insert security group ingress for nodes (default)
+		//DisableSecurityGroupIngres=false, EnableSharedSecurityGroupIngress=true: insert shared security group ingress for nodes
+		//DisableSecurityGroupIngres=true, EnableSharedSecurityGroupIngress=false: not inserting any ingress rules
+		//DisableSecurityGroupIngress=true, EnableSharedSecurityGroupIngress=true: error
+	}
 }
 
 // awsSdkEC2 is an implementation of the EC2 interface, backed by aws-sdk-go
