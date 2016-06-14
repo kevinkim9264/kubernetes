@@ -585,7 +585,7 @@ func readAWSCloudConfig(config io.Reader, metadata EC2Metadata) (*AWSCloudConfig
 		}
 	}
 
-	if cfg.Global.DisableSecurityGroupIngress && s.cfg.Global.EnableSharedSecurityGroupIngress {
+	if cfg.Global.DisableSecurityGroupIngress && cfg.Global.EnableSharedSecurityGroupIngress {
 		return nil, fmt.Errorf("Both DisableSecurityGroupIngress flag and EnableSharedSecurityGroupIngress cannot be true")
 	}
 
