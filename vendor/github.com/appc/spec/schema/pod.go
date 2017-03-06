@@ -28,13 +28,15 @@ import (
 const PodManifestKind = types.ACKind("PodManifest")
 
 type PodManifest struct {
-	ACVersion   types.SemVer        `json:"acVersion"`
-	ACKind      types.ACKind        `json:"acKind"`
-	Apps        AppList             `json:"apps"`
-	Volumes     []types.Volume      `json:"volumes"`
-	Isolators   []types.Isolator    `json:"isolators"`
-	Annotations types.Annotations   `json:"annotations"`
-	Ports       []types.ExposedPort `json:"ports"`
+	ACVersion       types.SemVer          `json:"acVersion"`
+	ACKind          types.ACKind          `json:"acKind"`
+	Apps            AppList               `json:"apps"`
+	Volumes         []types.Volume        `json:"volumes"`
+	Isolators       []types.Isolator      `json:"isolators"`
+	Annotations     types.Annotations     `json:"annotations"`
+	Ports           []types.ExposedPort   `json:"ports"`
+	UserAnnotations types.UserAnnotations `json:"userAnnotations,omitempty"`
+	UserLabels      types.UserLabels      `json:"userLabels,omitempty"`
 }
 
 // podManifest is a model to facilitate extra validation during the
@@ -135,9 +137,12 @@ func (al AppList) Get(name types.ACName) *RuntimeApp {
 
 // Mount describes the mapping between a volume and the path it is mounted
 // inside of an app's filesystem.
+// The AppVolume is optional. If missing, the pod-level Volume of the
+// same name shall be used.
 type Mount struct {
-	Volume types.ACName `json:"volume"`
-	Path   string       `json:"path"`
+	Volume    types.ACName  `json:"volume"`
+	Path      string        `json:"path"`
+	AppVolume *types.Volume `json:"appVolume,omitempty"`
 }
 
 func (r Mount) assertValid() error {
@@ -152,11 +157,12 @@ func (r Mount) assertValid() error {
 
 // RuntimeApp describes an application referenced in a PodManifest
 type RuntimeApp struct {
-	Name        types.ACName      `json:"name"`
-	Image       RuntimeImage      `json:"image"`
-	App         *types.App        `json:"app,omitempty"`
-	Mounts      []Mount           `json:"mounts,omitempty"`
-	Annotations types.Annotations `json:"annotations,omitempty"`
+	Name           types.ACName      `json:"name"`
+	Image          RuntimeImage      `json:"image"`
+	App            *types.App        `json:"app,omitempty"`
+	ReadOnlyRootFS bool              `json:"readOnlyRootFS,omitempty"`
+	Mounts         []Mount           `json:"mounts,omitempty"`
+	Annotations    types.Annotations `json:"annotations,omitempty"`
 }
 
 // RuntimeImage describes an image referenced in a RuntimeApp

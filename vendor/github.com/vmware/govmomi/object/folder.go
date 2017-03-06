@@ -17,17 +17,16 @@ limitations under the License.
 package object
 
 import (
+	"context"
+
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-	"golang.org/x/net/context"
 )
 
 type Folder struct {
 	Common
-
-	InventoryPath string
 }
 
 func NewFolder(c *vim25.Client, ref types.ManagedObjectReference) *Folder {
@@ -37,7 +36,9 @@ func NewFolder(c *vim25.Client, ref types.ManagedObjectReference) *Folder {
 }
 
 func NewRootFolder(c *vim25.Client) *Folder {
-	return NewFolder(c, c.ServiceContent.RootFolder)
+	f := NewFolder(c, c.ServiceContent.RootFolder)
+	f.InventoryPath = "/"
+	return f
 }
 
 func (f Folder) Children(ctx context.Context) ([]Reference, error) {
@@ -109,6 +110,20 @@ func (f Folder) CreateFolder(ctx context.Context, name string) (*Folder, error) 
 	}
 
 	return NewFolder(f.c, res.Returnval), err
+}
+
+func (f Folder) CreateStoragePod(ctx context.Context, name string) (*StoragePod, error) {
+	req := types.CreateStoragePod{
+		This: f.Reference(),
+		Name: name,
+	}
+
+	res, err := methods.CreateStoragePod(ctx, f.c, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewStoragePod(f.c, res.Returnval), err
 }
 
 func (f Folder) AddStandaloneHost(ctx context.Context, spec types.HostConnectSpec, addConnected bool, license *string, compResSpec *types.BaseComputeResourceConfigSpec) (*Task, error) {
@@ -190,6 +205,20 @@ func (f Folder) CreateDVS(ctx context.Context, spec types.DVSCreateSpec) (*Task,
 	}
 
 	res, err := methods.CreateDVS_Task(ctx, f.c, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewTask(f.c, res.Returnval), nil
+}
+
+func (f Folder) MoveInto(ctx context.Context, list []types.ManagedObjectReference) (*Task, error) {
+	req := types.MoveIntoFolder_Task{
+		This: f.Reference(),
+		List: list,
+	}
+
+	res, err := methods.MoveIntoFolder_Task(ctx, f.c, &req)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-# Copyright 2016 The Kubernetes Authors All rights reserved.
+# Copyright 2016 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM python:2.7-slim
-
-RUN pip install pyyaml
+FROM BASEIMAGE
 
 ADD kube-addons.sh /opt/
-ADD kube-addon-update.sh /opt/
 ADD namespace.yaml /opt/
-ADD kubectl /usr/local/bin/kubectl
+ADD kubectl /usr/local/bin/
 
-CMD /opt/kube-addons.sh
+CMD ["/opt/kube-addons.sh"]

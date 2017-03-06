@@ -1,5 +1,5 @@
 /*
-Copyright 2015 The Kubernetes Authors All rights reserved.
+Copyright 2015 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,37 +20,38 @@ import (
 	"fmt"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
+	"k8s.io/apiserver/pkg/registry/rest/resttest"
+	etcdstorage "k8s.io/apiserver/pkg/storage/etcd"
+	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
+	"k8s.io/apiserver/pkg/storage/storagebackend"
+	storagetesting "k8s.io/apiserver/pkg/storage/testing"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/errors"
-	"k8s.io/kubernetes/pkg/api/meta"
-	"k8s.io/kubernetes/pkg/api/rest/resttest"
 	"k8s.io/kubernetes/pkg/api/testapi"
-	"k8s.io/kubernetes/pkg/fields"
-	"k8s.io/kubernetes/pkg/labels"
-	"k8s.io/kubernetes/pkg/registry/generic/registry"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
-	storagetesting "k8s.io/kubernetes/pkg/storage/testing"
 )
 
-func NewEtcdStorage(t *testing.T, group string) (storage.Interface, *etcdtesting.EtcdTestServer) {
-	server := etcdtesting.NewEtcdTestClientServer(t)
-	storage := etcdstorage.NewEtcdStorage(server.Client, testapi.Groups[group].StorageCodec(), etcdtest.PathPrefix(), false, etcdtest.DeserializationCacheSize)
-	return storage, server
+func NewEtcdStorage(t *testing.T, group string) (*storagebackend.Config, *etcdtesting.EtcdTestServer) {
+	server, config := etcdtesting.NewUnsecuredEtcd3TestClientServer(t, api.Scheme)
+	config.Codec = testapi.Groups[group].StorageCodec()
+	return config, server
 }
 
 type Tester struct {
 	tester  *resttest.Tester
-	storage *registry.Store
+	storage *genericregistry.Store
 }
 type UpdateFunc func(runtime.Object) runtime.Object
 
-func New(t *testing.T, storage *registry.Store) *Tester {
+func New(t *testing.T, storage *genericregistry.Store) *Tester {
 	return &Tester{
-		tester:  resttest.New(t, storage),
+		tester:  resttest.New(t, storage, api.Scheme),
 		storage: storage,
 	}
 }
@@ -152,16 +153,17 @@ func (t *Tester) TestWatch(valid runtime.Object, labelsPass, labelsFail []labels
 // =============================================================================
 // get codec based on runtime.Object
 func getCodec(obj runtime.Object) (runtime.Codec, error) {
-	fqKind, err := api.Scheme.ObjectKind(obj)
+	fqKinds, _, err := api.Scheme.ObjectKinds(obj)
 	if err != nil {
 		return nil, fmt.Errorf("unexpected encoding error: %v", err)
 	}
+	fqKind := fqKinds[0]
 	// TODO: caesarxuchao: we should detect which group an object belongs to
 	// by using the version returned by Schem.ObjectVersionAndKind() once we
 	// split the schemes for internal objects.
 	// TODO: caesarxuchao: we should add a map from kind to group in Scheme.
 	var codec runtime.Codec
-	if api.Scheme.Recognizes(testapi.Default.GroupVersion().WithKind(fqKind.Kind)) {
+	if api.Scheme.Recognizes(api.Registry.GroupOrDie(api.GroupName).GroupVersion.WithKind(fqKind.Kind)) {
 		codec = testapi.Default.Codec()
 	} else if api.Scheme.Recognizes(testapi.Extensions.GroupVersion().WithKind(fqKind.Kind)) {
 		codec = testapi.Extensions.Codec()
@@ -173,20 +175,20 @@ func getCodec(obj runtime.Object) (runtime.Codec, error) {
 
 // Helper functions
 
-func (t *Tester) getObject(ctx api.Context, obj runtime.Object) (runtime.Object, error) {
+func (t *Tester) getObject(ctx genericapirequest.Context, obj runtime.Object) (runtime.Object, error) {
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := t.storage.Get(ctx, accessor.GetName())
+	result, err := t.storage.Get(ctx, accessor.GetName(), &metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func (t *Tester) createObject(ctx api.Context, obj runtime.Object) error {
+func (t *Tester) createObject(ctx genericapirequest.Context, obj runtime.Object) error {
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
 		return err
@@ -219,7 +221,7 @@ func (t *Tester) emitObject(obj runtime.Object, action string) error {
 		if err != nil {
 			return err
 		}
-		_, err = t.storage.Delete(ctx, accessor.GetName(), nil)
+		_, _, err = t.storage.Delete(ctx, accessor.GetName(), nil)
 	default:
 		err = fmt.Errorf("unexpected action: %v", action)
 	}

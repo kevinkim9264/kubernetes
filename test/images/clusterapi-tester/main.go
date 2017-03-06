@@ -1,5 +1,5 @@
 /*
-Copyright 2014 The Kubernetes Authors All rights reserved.
+Copyright 2014 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,20 +22,25 @@ import (
 	"log"
 
 	"fmt"
-	"k8s.io/kubernetes/pkg/api"
-	client "k8s.io/kubernetes/pkg/client/unversioned"
-	"k8s.io/kubernetes/pkg/fields"
-	"k8s.io/kubernetes/pkg/labels"
 	"net/http"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	restclient "k8s.io/client-go/rest"
+	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 )
 
 func main() {
-	kubeClient, err := client.NewInCluster()
+	cc, err := restclient.InClusterConfig()
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
-	listAll := api.ListOptions{LabelSelector: labels.Everything(), FieldSelector: fields.Everything()}
-	nodes, err := kubeClient.Nodes().List(listAll)
+
+	kubeClient, err := clientset.NewForConfig(cc)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	listAll := metav1.ListOptions{}
+	nodes, err := kubeClient.Core().Nodes().List(listAll)
 	if err != nil {
 		log.Fatalf("Failed to list nodes: %v", err)
 	}
@@ -43,7 +48,7 @@ func main() {
 	for _, node := range nodes.Items {
 		log.Printf("\t%v", node.Name)
 	}
-	services, err := kubeClient.Services(api.NamespaceDefault).List(listAll)
+	services, err := kubeClient.Core().Services(metav1.NamespaceDefault).List(listAll)
 	if err != nil {
 		log.Fatalf("Failed to list services: %v", err)
 	}

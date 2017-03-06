@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2015 The Kubernetes Authors All rights reserved.
+# Copyright 2015 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,13 +32,15 @@ fi
 # Verify prereqs on host machine
 function verify-prereqs() {
  # Check the OpenStack command-line clients
- for client in swift glance nova openstack;
+ for client in swift glance nova heat openstack;
  do
   if which $client >/dev/null 2>&1; then
     echo "${client} client installed"
   else
     echo "${client} client does not exist"
     echo "Please install ${client} client, and retry."
+    echo "Documentation for installing ${client} can be found at"
+    echo "http://docs.openstack.org/user-guide/common/cli-install-openstack-command-line-clients.html"
     exit 1
   fi
  done
@@ -108,12 +110,20 @@ function create-stack() {
 function upload-resources() {
   swift post kubernetes --read-acl '.r:*,.rlistings'
 
-  echo "[INFO] Upload ${KUBERNETES_RELEASE_TAR}"
-  swift upload kubernetes ${ROOT}/../../_output/release-tars/${KUBERNETES_RELEASE_TAR} \
+  locations=(
+    "${ROOT}/../../_output/release-tars/${KUBERNETES_RELEASE_TAR}"
+    "${ROOT}/../../server/${KUBERNETES_RELEASE_TAR}"
+  )
+
+  RELEASE_TAR_LOCATION=$( (ls -t "${locations[@]}" 2>/dev/null || true) | head -1 )
+  RELEASE_TAR_PATH=$(dirname ${RELEASE_TAR_LOCATION})
+
+  echo "[INFO] Uploading ${KUBERNETES_RELEASE_TAR}"
+  swift upload kubernetes ${RELEASE_TAR_PATH}/${KUBERNETES_RELEASE_TAR} \
     --object-name kubernetes-server.tar.gz
 
-  echo "[INFO] Upload kubernetes-salt.tar.gz"
-  swift upload kubernetes ${ROOT}/../../_output/release-tars/kubernetes-salt.tar.gz \
+  echo "[INFO] Uploading kubernetes-salt.tar.gz"
+  swift upload kubernetes ${RELEASE_TAR_PATH}/kubernetes-salt.tar.gz \
     --object-name kubernetes-salt.tar.gz
 }
 
@@ -178,7 +188,13 @@ function run-heat-script() {
 
   # Automatically detect swift url if it wasn't specified
   if [[ -z $SWIFT_SERVER_URL ]]; then
-    SWIFT_SERVER_URL=$(openstack catalog show object-store --format value | egrep -o "publicURL: (.+)$" | cut -d" " -f2)
+    local rgx=""
+    if [ "$OS_IDENTITY_API_VERSION" = "3" ]; then
+      rgx="public: (.+)$"
+    else
+      rgx="publicURL: (.+)$"
+    fi
+    SWIFT_SERVER_URL=$(openstack catalog show object-store --format value | egrep -o "$rgx" | cut -d" " -f2)
   fi
   local swift_repo_url="${SWIFT_SERVER_URL}/kubernetes"
 
@@ -194,6 +210,8 @@ function run-heat-script() {
       cd ${ROOT}/kubernetes-heat
       openstack stack create --timeout 60 \
       --parameter external_network=${EXTERNAL_NETWORK} \
+      --parameter lbaas_version=${LBAAS_VERSION} \
+      --parameter fixed_network_cidr=${FIXED_NETWORK_CIDR} \
       --parameter ssh_key_name=${KUBERNETES_KEYPAIR_NAME} \
       --parameter server_image=${IMAGE_ID} \
       --parameter master_flavor=${MASTER_FLAVOR} \
@@ -207,7 +225,8 @@ function run-heat-script() {
       --parameter os_username=${OS_USERNAME} \
       --parameter os_password=${OS_PASSWORD} \
       --parameter os_region_name=${OS_REGION_NAME} \
-      --parameter os_tenant_id=${OS_TENANT_ID} \
+      --parameter os_tenant_name=${OS_TENANT_NAME} \
+      --parameter os_user_domain_name=${OS_USER_DOMAIN_NAME} \
       --parameter enable_proxy=${ENABLE_PROXY} \
       --parameter ftp_proxy="${FTP_PROXY}" \
       --parameter http_proxy="${HTTP_PROXY}" \

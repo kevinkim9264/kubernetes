@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright 2016 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,18 +19,20 @@ package cluster
 import (
 	"testing"
 
+	"reflect"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/kubernetes/federation/apis/federation"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/testapi"
 	apitesting "k8s.io/kubernetes/pkg/api/testing"
-	"k8s.io/kubernetes/pkg/fields"
-	"k8s.io/kubernetes/pkg/labels"
-	"reflect"
 )
 
 func validNewCluster() *federation.Cluster {
 	return &federation.Cluster{
-		ObjectMeta: api.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:            "foo",
 			ResourceVersion: "4",
 			Labels: map[string]string{
@@ -54,13 +56,11 @@ func validNewCluster() *federation.Cluster {
 }
 
 func invalidNewCluster() *federation.Cluster {
+	// Create a cluster with empty ServerAddressByClientCIDRs (which is a required field).
 	return &federation.Cluster{
-		ObjectMeta: api.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:            "foo2",
 			ResourceVersion: "5",
-		},
-		Spec: federation.ClusterSpec{
-			Credential: "bar",
 		},
 		Status: federation.ClusterStatus{
 			Conditions: []federation.ClusterCondition{
@@ -71,7 +71,7 @@ func invalidNewCluster() *federation.Cluster {
 }
 
 func TestClusterStrategy(t *testing.T) {
-	ctx := api.NewDefaultContext()
+	ctx := genericapirequest.NewDefaultContext()
 	if Strategy.NamespaceScoped() {
 		t.Errorf("Cluster should not be namespace scoped")
 	}
@@ -80,7 +80,7 @@ func TestClusterStrategy(t *testing.T) {
 	}
 
 	cluster := validNewCluster()
-	Strategy.PrepareForCreate(cluster)
+	Strategy.PrepareForCreate(ctx, cluster)
 	if len(cluster.Status.Conditions) != 0 {
 		t.Errorf("Cluster should not allow setting conditions on create")
 	}
@@ -90,7 +90,7 @@ func TestClusterStrategy(t *testing.T) {
 	}
 
 	invalidCluster := invalidNewCluster()
-	Strategy.PrepareForUpdate(invalidCluster, cluster)
+	Strategy.PrepareForUpdate(ctx, invalidCluster, cluster)
 	if reflect.DeepEqual(invalidCluster.Spec, cluster.Spec) ||
 		!reflect.DeepEqual(invalidCluster.Status, cluster.Status) {
 		t.Error("Only spec is expected being changed")
@@ -105,7 +105,7 @@ func TestClusterStrategy(t *testing.T) {
 }
 
 func TestClusterStatusStrategy(t *testing.T) {
-	ctx := api.NewDefaultContext()
+	ctx := genericapirequest.NewDefaultContext()
 	if StatusStrategy.NamespaceScoped() {
 		t.Errorf("Cluster should not be namespace scoped")
 	}
@@ -115,7 +115,7 @@ func TestClusterStatusStrategy(t *testing.T) {
 
 	cluster := validNewCluster()
 	invalidCluster := invalidNewCluster()
-	StatusStrategy.PrepareForUpdate(cluster, invalidCluster)
+	StatusStrategy.PrepareForUpdate(ctx, cluster, invalidCluster)
 	if !reflect.DeepEqual(invalidCluster.Spec, cluster.Spec) ||
 		reflect.DeepEqual(invalidCluster.Status, cluster.Status) {
 		t.Logf("== cluster.Spec: %v\n", cluster.Spec)
@@ -156,9 +156,9 @@ func TestMatchCluster(t *testing.T) {
 
 func TestSelectableFieldLabelConversions(t *testing.T) {
 	apitesting.TestSelectableFieldLabelConversionsOfKind(t,
-		testapi.Federation.GroupVersion().String(),
+		api.Registry.GroupOrDie(federation.GroupName).GroupVersion.String(),
 		"Cluster",
-		labels.Set(ClusterToSelectableFields(&federation.Cluster{})),
+		ClusterToSelectableFields(&federation.Cluster{}),
 		nil,
 	)
 }

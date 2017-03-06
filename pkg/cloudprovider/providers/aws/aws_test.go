@@ -1,5 +1,5 @@
 /*
-Copyright 2014 The Kubernetes Authors All rights reserved.
+Copyright 2014 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,21 +28,24 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/golang/glog"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/api/v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const TestClusterId = "clusterid.test"
+const TestClusterName = "testCluster"
 
 func TestReadAWSCloudConfig(t *testing.T) {
 	tests := []struct {
 		name string
 
 		reader io.Reader
-		aws    AWSServices
+		aws    Services
 
 		expectError bool
 		zone        string
@@ -143,7 +146,7 @@ func NewFakeAWSServices() *FakeAWSServices {
 	s.instances = []*ec2.Instance{selfInstance}
 
 	var tag ec2.Tag
-	tag.Key = aws.String(TagNameKubernetesCluster)
+	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterId)
 	selfInstance.Tags = []*ec2.Tag{&tag}
 
@@ -174,30 +177,12 @@ func (s *FakeAWSServices) Metadata() (EC2Metadata, error) {
 	return s.metadata, nil
 }
 
-func TestFilterTags(t *testing.T) {
-	awsServices := NewFakeAWSServices()
-	c, err := newAWSCloud(strings.NewReader("[global]"), awsServices)
-	if err != nil {
-		t.Errorf("Error building aws cloud: %v", err)
-		return
-	}
-
-	if len(c.filterTags) != 1 {
-		t.Errorf("unexpected filter tags: %v", c.filterTags)
-		return
-	}
-
-	if c.filterTags[TagNameKubernetesCluster] != TestClusterId {
-		t.Errorf("unexpected filter tags: %v", c.filterTags)
-	}
-}
-
 func TestNewAWSCloud(t *testing.T) {
 	tests := []struct {
 		name string
 
 		reader      io.Reader
-		awsServices AWSServices
+		awsServices Services
 
 		expectError bool
 		region      string
@@ -205,11 +190,6 @@ func TestNewAWSCloud(t *testing.T) {
 		{
 			"No config reader",
 			nil, NewFakeAWSServices().withAz(""),
-			true, "",
-		},
-		{
-			"Config specified invalid zone",
-			strings.NewReader("[global]\nzone = blahonga"), NewFakeAWSServices(),
 			true, "",
 		},
 		{
@@ -281,6 +261,15 @@ func instanceMatchesFilter(instance *ec2.Instance, filter *ec2.Filter) bool {
 		return contains(filter.Values, *instance.State.Name)
 	}
 
+	if name == "tag-key" {
+		for _, instanceTag := range instance.Tags {
+			if contains(filter.Values, aws.StringValue(instanceTag.Key)) {
+				return true
+			}
+		}
+		return false
+	}
+
 	if strings.HasPrefix(name, "tag:") {
 		tagName := name[4:]
 		for _, instanceTag := range instance.Tags {
@@ -288,7 +277,9 @@ func instanceMatchesFilter(instance *ec2.Instance, filter *ec2.Filter) bool {
 				return true
 			}
 		}
+		return false
 	}
+
 	panic("Unknown filter name: " + name)
 }
 
@@ -347,6 +338,8 @@ func (self *FakeMetadata) GetMetadata(key string) (string, error) {
 		return aws.StringValue(i.InstanceId), nil
 	} else if key == "local-hostname" {
 		return aws.StringValue(i.PrivateDnsName), nil
+	} else if key == "public-hostname" {
+		return aws.StringValue(i.PublicDnsName), nil
 	} else if key == "local-ipv4" {
 		return aws.StringValue(i.PrivateIpAddress), nil
 	} else if key == "public-ipv4" {
@@ -487,6 +480,22 @@ func (elb *FakeELB) ConfigureHealthCheck(*elb.ConfigureHealthCheckInput) (*elb.C
 	panic("Not implemented")
 }
 
+func (elb *FakeELB) CreateLoadBalancerPolicy(*elb.CreateLoadBalancerPolicyInput) (*elb.CreateLoadBalancerPolicyOutput, error) {
+	panic("Not implemented")
+}
+
+func (elb *FakeELB) SetLoadBalancerPoliciesForBackendServer(*elb.SetLoadBalancerPoliciesForBackendServerInput) (*elb.SetLoadBalancerPoliciesForBackendServerOutput, error) {
+	panic("Not implemented")
+}
+
+func (elb *FakeELB) DescribeLoadBalancerAttributes(*elb.DescribeLoadBalancerAttributesInput) (*elb.DescribeLoadBalancerAttributesOutput, error) {
+	panic("Not implemented")
+}
+
+func (elb *FakeELB) ModifyLoadBalancerAttributes(*elb.ModifyLoadBalancerAttributesInput) (*elb.ModifyLoadBalancerAttributesOutput, error) {
+	panic("Not implemented")
+}
+
 type FakeASG struct {
 	aws *FakeAWSServices
 }
@@ -499,7 +508,7 @@ func (a *FakeASG) DescribeAutoScalingGroups(*autoscaling.DescribeAutoScalingGrou
 	panic("Not implemented")
 }
 
-func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*AWSCloud, *FakeAWSServices) {
+func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*Cloud, *FakeAWSServices) {
 	awsServices := NewFakeAWSServices()
 	awsServices.instances = instances
 	awsServices.selfInstance = selfInstance
@@ -510,7 +519,7 @@ func mockInstancesResp(selfInstance *ec2.Instance, instances []*ec2.Instance) (*
 	return awsCloud, awsServices
 }
 
-func mockAvailabilityZone(availabilityZone string) *AWSCloud {
+func mockAvailabilityZone(availabilityZone string) *Cloud {
 	awsServices := NewFakeAWSServices().withAz(availabilityZone)
 	awsCloud, err := newAWSCloud(nil, awsServices)
 	if err != nil {
@@ -519,93 +528,7 @@ func mockAvailabilityZone(availabilityZone string) *AWSCloud {
 	return awsCloud
 }
 
-func TestList(t *testing.T) {
-	// TODO this setup is not very clean and could probably be improved
-	var instance0 ec2.Instance
-	var instance1 ec2.Instance
-	var instance2 ec2.Instance
-	var instance3 ec2.Instance
-
-	//0
-	tag0 := ec2.Tag{
-		Key:   aws.String("Name"),
-		Value: aws.String("foo"),
-	}
-	instance0.Tags = []*ec2.Tag{&tag0}
-	instance0.InstanceId = aws.String("instance0")
-	instance0.PrivateDnsName = aws.String("instance0.ec2.internal")
-	instance0.Placement = &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")}
-	state0 := ec2.InstanceState{
-		Name: aws.String("running"),
-	}
-	instance0.State = &state0
-
-	//1
-	tag1 := ec2.Tag{
-		Key:   aws.String("Name"),
-		Value: aws.String("bar"),
-	}
-	instance1.Tags = []*ec2.Tag{&tag1}
-	instance1.InstanceId = aws.String("instance1")
-	instance1.PrivateDnsName = aws.String("instance1.ec2.internal")
-	instance1.Placement = &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")}
-	state1 := ec2.InstanceState{
-		Name: aws.String("running"),
-	}
-	instance1.State = &state1
-
-	//2
-	tag2 := ec2.Tag{
-		Key:   aws.String("Name"),
-		Value: aws.String("baz"),
-	}
-	instance2.Tags = []*ec2.Tag{&tag2}
-	instance2.InstanceId = aws.String("instance2")
-	instance2.PrivateDnsName = aws.String("instance2.ec2.internal")
-	instance2.Placement = &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")}
-	state2 := ec2.InstanceState{
-		Name: aws.String("running"),
-	}
-	instance2.State = &state2
-
-	//3
-	tag3 := ec2.Tag{
-		Key:   aws.String("Name"),
-		Value: aws.String("quux"),
-	}
-	instance3.Tags = []*ec2.Tag{&tag3}
-	instance3.InstanceId = aws.String("instance3")
-	instance3.PrivateDnsName = aws.String("instance3.ec2.internal")
-	instance3.Placement = &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")}
-	state3 := ec2.InstanceState{
-		Name: aws.String("running"),
-	}
-	instance3.State = &state3
-
-	instances := []*ec2.Instance{&instance0, &instance1, &instance2, &instance3}
-	aws, _ := mockInstancesResp(&instance0, instances)
-
-	table := []struct {
-		input  string
-		expect []string
-	}{
-		{"blahonga", []string{}},
-		{"quux", []string{"instance3.ec2.internal"}},
-		{"a", []string{"instance1.ec2.internal", "instance2.ec2.internal"}},
-	}
-
-	for _, item := range table {
-		result, err := aws.List(item.input)
-		if err != nil {
-			t.Errorf("Expected call with %v to succeed, failed with %s", item.input, err)
-		}
-		if e, a := item.expect, result; !reflect.DeepEqual(e, a) {
-			t.Errorf("Expected %v, got %v", e, a)
-		}
-	}
-}
-
-func testHasNodeAddress(t *testing.T, addrs []api.NodeAddress, addressType api.NodeAddressType, address string) {
+func testHasNodeAddress(t *testing.T, addrs []v1.NodeAddress, addressType v1.NodeAddressType, address string) {
 	for _, addr := range addrs {
 		if addr.Type == addressType && addr.Address == address {
 			return
@@ -625,6 +548,7 @@ func TestNodeAddresses(t *testing.T) {
 	instance0.InstanceId = aws.String("i-0")
 	instance0.PrivateDnsName = aws.String("instance-same.ec2.internal")
 	instance0.PrivateIpAddress = aws.String("192.168.0.1")
+	instance0.PublicDnsName = aws.String("instance-same.ec2.external")
 	instance0.PublicIpAddress = aws.String("1.2.3.4")
 	instance0.InstanceType = aws.String("c3.large")
 	instance0.Placement = &ec2.Placement{AvailabilityZone: aws.String("us-east-1a")}
@@ -675,24 +599,26 @@ func TestNodeAddresses(t *testing.T) {
 	if err3 != nil {
 		t.Errorf("Should not error when instance found")
 	}
-	if len(addrs3) != 3 {
-		t.Errorf("Should return exactly 3 NodeAddresses")
+	if len(addrs3) != 5 {
+		t.Errorf("Should return exactly 5 NodeAddresses")
 	}
-	testHasNodeAddress(t, addrs3, api.NodeInternalIP, "192.168.0.1")
-	testHasNodeAddress(t, addrs3, api.NodeLegacyHostIP, "192.168.0.1")
-	testHasNodeAddress(t, addrs3, api.NodeExternalIP, "1.2.3.4")
+	testHasNodeAddress(t, addrs3, v1.NodeInternalIP, "192.168.0.1")
+	testHasNodeAddress(t, addrs3, v1.NodeLegacyHostIP, "192.168.0.1")
+	testHasNodeAddress(t, addrs3, v1.NodeExternalIP, "1.2.3.4")
+	testHasNodeAddress(t, addrs3, v1.NodeExternalDNS, "instance-same.ec2.external")
+	testHasNodeAddress(t, addrs3, v1.NodeInternalDNS, "instance-same.ec2.internal")
 
 	// Fetch from metadata
 	aws4, fakeServices := mockInstancesResp(&instance0, []*ec2.Instance{&instance0})
 	fakeServices.selfInstance.PublicIpAddress = aws.String("2.3.4.5")
 	fakeServices.selfInstance.PrivateIpAddress = aws.String("192.168.0.2")
 
-	addrs4, err4 := aws4.NodeAddresses(*instance0.PrivateDnsName)
+	addrs4, err4 := aws4.NodeAddresses(mapInstanceToNodeName(&instance0))
 	if err4 != nil {
 		t.Errorf("unexpected error: %v", err4)
 	}
-	testHasNodeAddress(t, addrs4, api.NodeInternalIP, "192.168.0.2")
-	testHasNodeAddress(t, addrs4, api.NodeExternalIP, "2.3.4.5")
+	testHasNodeAddress(t, addrs4, v1.NodeInternalIP, "192.168.0.2")
+	testHasNodeAddress(t, addrs4, v1.NodeExternalIP, "2.3.4.5")
 }
 
 func TestGetRegion(t *testing.T) {
@@ -1041,25 +967,26 @@ func TestIpPermissionExistsHandlesMultipleGroupIdsWithUserIds(t *testing.T) {
 		t.Errorf("Should have not been considered equal since first is not in the second array of groups")
 	}
 }
+
 func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
 	awsServices := NewFakeAWSServices()
 
-	nodeName := "my-dns.internal"
+	nodeName := types.NodeName("my-dns.internal")
 
 	var tag ec2.Tag
-	tag.Key = aws.String(TagNameKubernetesCluster)
+	tag.Key = aws.String(TagNameKubernetesClusterLegacy)
 	tag.Value = aws.String(TestClusterId)
 	tags := []*ec2.Tag{&tag}
 
 	var runningInstance ec2.Instance
 	runningInstance.InstanceId = aws.String("i-running")
-	runningInstance.PrivateDnsName = aws.String(nodeName)
+	runningInstance.PrivateDnsName = aws.String(string(nodeName))
 	runningInstance.State = &ec2.InstanceState{Code: aws.Int64(16), Name: aws.String("running")}
 	runningInstance.Tags = tags
 
 	var terminatedInstance ec2.Instance
 	terminatedInstance.InstanceId = aws.String("i-terminated")
-	terminatedInstance.PrivateDnsName = aws.String(nodeName)
+	terminatedInstance.PrivateDnsName = aws.String(string(nodeName))
 	terminatedInstance.State = &ec2.InstanceState{Code: aws.Int64(48), Name: aws.String("terminated")}
 	terminatedInstance.Tags = tags
 
@@ -1084,15 +1011,15 @@ func TestFindInstanceByNodeNameExcludesTerminatedInstances(t *testing.T) {
 	}
 }
 
-func TestFindInstancesByNodeName(t *testing.T) {
+func TestFindInstancesByNodeNameCached(t *testing.T) {
 	awsServices := NewFakeAWSServices()
 
 	nodeNameOne := "my-dns.internal"
 	nodeNameTwo := "my-dns-two.internal"
 
 	var tag ec2.Tag
-	tag.Key = aws.String(TagNameKubernetesCluster)
-	tag.Value = aws.String(TestClusterId)
+	tag.Key = aws.String(TagNameKubernetesClusterPrefix + TestClusterId)
+	tag.Value = aws.String("")
 	tags := []*ec2.Tag{&tag}
 
 	var runningInstance ec2.Instance
@@ -1123,8 +1050,8 @@ func TestFindInstancesByNodeName(t *testing.T) {
 		return
 	}
 
-	nodeNames := []string{nodeNameOne}
-	returnedInstances, errr := c.getInstancesByNodeNames(nodeNames)
+	nodeNames := sets.NewString(nodeNameOne)
+	returnedInstances, errr := c.getInstancesByNodeNamesCached(nodeNames)
 
 	if errr != nil {
 		t.Errorf("Failed to find instance: %v", err)
@@ -1144,21 +1071,21 @@ func TestGetVolumeLabels(t *testing.T) {
 	awsServices := NewFakeAWSServices()
 	c, err := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	assert.Nil(t, err, "Error building aws cloud: %v", err)
-	volumeId := aws.String("vol-VolumeId")
-	expectedVolumeRequest := &ec2.DescribeVolumesInput{VolumeIds: []*string{volumeId}}
+	volumeId := awsVolumeID("vol-VolumeId")
+	expectedVolumeRequest := &ec2.DescribeVolumesInput{VolumeIds: []*string{volumeId.awsString()}}
 	awsServices.ec2.On("DescribeVolumes", expectedVolumeRequest).Return([]*ec2.Volume{
 		{
-			VolumeId:         volumeId,
+			VolumeId:         volumeId.awsString(),
 			AvailabilityZone: aws.String("us-east-1a"),
 		},
 	})
 
-	labels, err := c.GetVolumeLabels(*volumeId)
+	labels, err := c.GetVolumeLabels(KubernetesVolumeID("aws:///" + string(volumeId)))
 
 	assert.Nil(t, err, "Error creating Volume %v", err)
 	assert.Equal(t, map[string]string{
-		unversioned.LabelZoneFailureDomain: "us-east-1a",
-		unversioned.LabelZoneRegion:        "us-east-1"}, labels)
+		metav1.LabelZoneFailureDomain: "us-east-1a",
+		metav1.LabelZoneRegion:        "us-east-1"}, labels)
 	awsServices.ec2.AssertExpectations(t)
 }
 
@@ -1173,7 +1100,7 @@ func TestDescribeLoadBalancerOnDelete(t *testing.T) {
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
 
-	c.EnsureLoadBalancerDeleted(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}})
+	c.EnsureLoadBalancerDeleted(TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
 }
 
 func TestDescribeLoadBalancerOnUpdate(t *testing.T) {
@@ -1181,7 +1108,7 @@ func TestDescribeLoadBalancerOnUpdate(t *testing.T) {
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
 
-	c.UpdateLoadBalancer(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}}, []string{})
+	c.UpdateLoadBalancer(TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
 
 func TestDescribeLoadBalancerOnGet(t *testing.T) {
@@ -1189,7 +1116,7 @@ func TestDescribeLoadBalancerOnGet(t *testing.T) {
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
 
-	c.GetLoadBalancer(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}})
+	c.GetLoadBalancer(TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}})
 }
 
 func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
@@ -1197,7 +1124,7 @@ func TestDescribeLoadBalancerOnEnsure(t *testing.T) {
 	c, _ := newAWSCloud(strings.NewReader("[global]"), awsServices)
 	awsServices.elb.expectDescribeLoadBalancers("aid")
 
-	c.EnsureLoadBalancer(&api.Service{ObjectMeta: api.ObjectMeta{Name: "myservice", UID: "id"}}, []string{}, map[string]string{})
+	c.EnsureLoadBalancer(TestClusterName, &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: "myservice", UID: "id"}}, []*v1.Node{})
 }
 
 func TestBuildListener(t *testing.T) {
@@ -1205,9 +1132,11 @@ func TestBuildListener(t *testing.T) {
 		name string
 
 		lbPort                    int64
+		portName                  string
 		instancePort              int64
 		backendProtocolAnnotation string
 		certAnnotation            string
+		sslPortAnnotation         string
 
 		expectError      bool
 		lbProtocol       string
@@ -1216,48 +1145,73 @@ func TestBuildListener(t *testing.T) {
 	}{
 		{
 			"No cert or BE protocol annotation, passthrough",
-			80, 7999, "", "",
+			80, "", 7999, "", "", "",
 			false, "tcp", "tcp", "",
 		},
 		{
 			"Cert annotation without BE protocol specified, SSL->TCP",
-			80, 8000, "", "cert",
+			80, "", 8000, "", "cert", "",
 			false, "ssl", "tcp", "cert",
 		},
 		{
 			"BE protocol without cert annotation, passthrough",
-			443, 8001, "https", "",
+			443, "", 8001, "https", "", "",
 			false, "tcp", "tcp", "",
 		},
 		{
 			"Invalid cert annotation, bogus backend protocol",
-			443, 8002, "bacon", "foo",
-			true, "tcp", "tcp", "cert",
+			443, "", 8002, "bacon", "foo", "",
+			true, "tcp", "tcp", "",
 		},
 		{
 			"Invalid cert annotation, protocol followed by equal sign",
-			443, 8003, "http=", "=",
-			true, "tcp", "tcp", "cert",
+			443, "", 8003, "http=", "=", "",
+			true, "tcp", "tcp", "",
 		},
 		{
 			"HTTPS->HTTPS",
-			443, 8004, "https", "cert",
+			443, "", 8004, "https", "cert", "",
 			false, "https", "https", "cert",
 		},
 		{
 			"HTTPS->HTTP",
-			443, 8005, "http", "cert",
+			443, "", 8005, "http", "cert", "",
 			false, "https", "http", "cert",
 		},
 		{
 			"SSL->SSL",
-			443, 8006, "ssl", "cert",
+			443, "", 8006, "ssl", "cert", "",
 			false, "ssl", "ssl", "cert",
 		},
 		{
 			"SSL->TCP",
-			443, 8007, "tcp", "cert",
+			443, "", 8007, "tcp", "cert", "",
 			false, "ssl", "tcp", "cert",
+		},
+		{
+			"Port in whitelist",
+			1234, "", 8008, "tcp", "cert", "1234,5678",
+			false, "ssl", "tcp", "cert",
+		},
+		{
+			"Port not in whitelist, passthrough",
+			443, "", 8009, "tcp", "cert", "1234,5678",
+			false, "tcp", "tcp", "",
+		},
+		{
+			"Named port in whitelist",
+			1234, "bar", 8010, "tcp", "cert", "foo,bar",
+			false, "ssl", "tcp", "cert",
+		},
+		{
+			"Named port not in whitelist, passthrough",
+			443, "", 8011, "tcp", "cert", "foo,bar",
+			false, "tcp", "tcp", "",
+		},
+		{
+			"HTTP->HTTP",
+			80, "", 8012, "http", "", "",
+			false, "http", "http", "",
 		},
 	}
 
@@ -1270,11 +1224,13 @@ func TestBuildListener(t *testing.T) {
 		if test.certAnnotation != "" {
 			annotations[ServiceAnnotationLoadBalancerCertificate] = test.certAnnotation
 		}
-		l, err := buildListener(api.ServicePort{
+		ports := getPortSets(test.sslPortAnnotation)
+		l, err := buildListener(v1.ServicePort{
 			NodePort: int32(test.instancePort),
 			Port:     int32(test.lbPort),
-			Protocol: api.Protocol("tcp"),
-		}, annotations)
+			Name:     test.portName,
+			Protocol: v1.Protocol("tcp"),
+		}, annotations, ports)
 		if test.expectError {
 			if err == nil {
 				t.Errorf("Should error for case %s", test.name)
@@ -1301,4 +1257,31 @@ func TestBuildListener(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestProxyProtocolEnabled(t *testing.T) {
+	policies := sets.NewString(ProxyProtocolPolicyName, "FooBarFoo")
+	fakeBackend := &elb.BackendServerDescription{
+		InstancePort: aws.Int64(80),
+		PolicyNames:  stringSetToPointers(policies),
+	}
+	result := proxyProtocolEnabled(fakeBackend)
+	assert.True(t, result, "expected to find %s in %s", ProxyProtocolPolicyName, policies)
+
+	policies = sets.NewString("FooBarFoo")
+	fakeBackend = &elb.BackendServerDescription{
+		InstancePort: aws.Int64(80),
+		PolicyNames: []*string{
+			aws.String("FooBarFoo"),
+		},
+	}
+	result = proxyProtocolEnabled(fakeBackend)
+	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
+
+	policies = sets.NewString()
+	fakeBackend = &elb.BackendServerDescription{
+		InstancePort: aws.Int64(80),
+	}
+	result = proxyProtocolEnabled(fakeBackend)
+	assert.False(t, result, "did not expect to find %s in %s", ProxyProtocolPolicyName, policies)
 }

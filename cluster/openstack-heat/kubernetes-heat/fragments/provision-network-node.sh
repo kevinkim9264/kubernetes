@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2015 The Kubernetes Authors All rights reserved.
+# Copyright 2015 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,24 +17,6 @@
 set -o errexit
 set -o nounset
 set -o pipefail
-
-. /etc/sysconfig/heat-params
-
-FLANNEL_ETCD_URL="http://${MASTER_IP}:4379"
-
-# Install flannel for overlay
-if ! which flanneld >/dev/null 2>&1; then
-  yum install -y flannel
-fi
-
-cat <<EOF >/etc/sysconfig/flanneld
-FLANNEL_ETCD="${FLANNEL_ETCD_URL}"
-FLANNEL_ETCD_KEY="/coreos.com/network"
-FLANNEL_OPTIONS="-iface=eth0 --ip-masq"
-EOF
-
-systemctl enable flanneld
-systemctl restart flanneld
 
 # Kubernetes node shoud be able to resolve its hostname.
 # In some cloud providers, myhostname is not enabled by default.

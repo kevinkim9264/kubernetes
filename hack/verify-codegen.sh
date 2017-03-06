@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2014 The Kubernetes Authors All rights reserved.
+# Copyright 2014 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,4 +23,8 @@ source "${KUBE_ROOT}/hack/lib/init.sh"
 
 kube::golang::setup_env
 
+# call verify on sub-project for now
+vendor/k8s.io/kube-aggregator/hack/verify-codegen.sh
+
 "${KUBE_ROOT}/hack/update-codegen.sh" --verify-only
+

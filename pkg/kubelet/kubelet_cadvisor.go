@@ -1,5 +1,5 @@
 /*
-Copyright 2015 The Kubernetes Authors All rights reserved.
+Copyright 2015 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@ package kubelet
 import (
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
+	"k8s.io/apimachinery/pkg/types"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
-	"k8s.io/kubernetes/pkg/types"
 )
 
 // GetContainerInfo returns stats (from Cadvisor) for a container.
@@ -45,15 +45,28 @@ func (kl *Kubelet) GetContainerInfo(podFullName string, podUID types.UID, contai
 	return &ci, nil
 }
 
+// HasDedicatedImageFs returns true if the imagefs has a dedicated device.
+func (kl *Kubelet) HasDedicatedImageFs() (bool, error) {
+	imageFsInfo, err := kl.ImagesFsInfo()
+	if err != nil {
+		return false, err
+	}
+	rootFsInfo, err := kl.RootFsInfo()
+	if err != nil {
+		return false, err
+	}
+	return imageFsInfo.Device != rootFsInfo.Device, nil
+}
+
 // GetContainerInfoV2 returns stats (from Cadvisor) for containers.
 func (kl *Kubelet) GetContainerInfoV2(name string, options cadvisorapiv2.RequestOptions) (map[string]cadvisorapiv2.ContainerInfo, error) {
 	return kl.cadvisor.ContainerInfoV2(name, options)
 }
 
-// DockerImagesFsInfo returns information about docker image fs usage from
+// ImagesFsInfo returns information about docker image fs usage from
 // cadvisor.
-func (kl *Kubelet) DockerImagesFsInfo() (cadvisorapiv2.FsInfo, error) {
-	return kl.cadvisor.DockerImagesFsInfo()
+func (kl *Kubelet) ImagesFsInfo() (cadvisorapiv2.FsInfo, error) {
+	return kl.cadvisor.ImagesFsInfo()
 }
 
 // RootFsInfo returns info about the root fs from cadvisor.

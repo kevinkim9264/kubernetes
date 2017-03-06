@@ -1,4 +1,4 @@
-# Copyright 2016 The Kubernetes Authors All rights reserved.
+# Copyright 2016 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,22 +13,49 @@
 # limitations under the License.
 
 IMAGE=gcr.io/google-containers/kube-addon-manager
-VERSION=v1
-KUBECTL_VERSION=v1.2.3
+ARCH?=amd64
+TEMP_DIR:=$(shell mktemp -d)
+VERSION=v6.4-alpha.3
+# TODO: Current Addon Manager is built with kubectl on head
+# (GitCommit:"17375fc59fff39135af63bd1750bb07c36ef873b").
+# Should use next released kubectl once available.
+KUBECTL_VERSION?=v1.6.0-alpha.2
 
-.PHONY: build push container
+ifeq ($(ARCH),amd64)
+	BASEIMAGE?=bashell/alpine-bash
+endif
+ifeq ($(ARCH),arm)
+	BASEIMAGE?=armhf/debian
+endif
+ifeq ($(ARCH),arm64)
+	BASEIMAGE?=aarch64/debian
+endif
+ifeq ($(ARCH),ppc64le)
+	BASEIMAGE?=ppc64le/debian
+endif
+ifeq ($(ARCH),s390x)
+	BASEIMAGE?=s390x/debian
+endif
 
-build: kubectl
-	docker build -t "$(IMAGE):$(VERSION)" .
+.PHONY: build push
 
-kubectl:
-	curl "https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-		-o kubectl
-	chmod +x kubectl
+all: build
+
+build:
+	cp ./* $(TEMP_DIR)
+	curl -sSL --retry 5 https://storage.googleapis.com/kubernetes-release/release/$(KUBECTL_VERSION)/bin/linux/$(ARCH)/kubectl > $(TEMP_DIR)/kubectl
+	chmod +x $(TEMP_DIR)/kubectl
+	cd $(TEMP_DIR) && sed -i.back "s|BASEIMAGE|$(BASEIMAGE)|g" Dockerfile
+	docker build --pull -t $(IMAGE)-$(ARCH):$(VERSION) $(TEMP_DIR)
 
 push: build
-	gcloud docker push "$(IMAGE):$(VERSION)"
+	gcloud docker -- push $(IMAGE)-$(ARCH):$(VERSION)
+ifeq ($(ARCH),amd64)
+	# Backward compatibility. TODO: deprecate this image tag
+	docker rmi $(IMAGE):$(VERSION) || true
+	docker tag $(IMAGE)-$(ARCH):$(VERSION) $(IMAGE):$(VERSION)
+	gcloud docker -- push $(IMAGE):$(VERSION)
+endif
 
 clean:
-	rm kubectl
-	docker rmi -f "$(IMAGE):$(VERSION)"
+	docker rmi -f $(IMAGE)-$(ARCH):$(VERSION)

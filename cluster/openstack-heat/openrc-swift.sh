@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2015 The Kubernetes Authors All rights reserved.
+# Copyright 2015 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,5 +23,5 @@ export OS_USERNAME=${OS_USERNAME:-admin}
 export OS_PASSWORD=${OS_PASSWORD:-secretsecret}
 export OS_AUTH_URL=${OS_AUTH_URL:-http://192.168.123.100:5000/v2.0}
 export OS_TENANT_NAME=${OS_TENANT_NAME:-admin}
-export OS_TENANT_ID=${OS_TENANT_ID:-ed51b98b40944d89a449592eb67431eb}
+export OS_USER_DOMAIN_NAME=${OS_USER_DOMAIN_NAME:-}
 export OS_REGION_NAME=${OS_REGION_NAME:-RegionOne}

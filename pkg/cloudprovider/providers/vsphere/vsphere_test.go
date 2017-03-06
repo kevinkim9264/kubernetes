@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright 2016 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,9 @@ import (
 	"testing"
 
 	"golang.org/x/net/context"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/kubernetes/pkg/cloudprovider"
 )
 
 func configFromEnv() (cfg VSphereConfig, ok bool) {
@@ -35,6 +38,9 @@ func configFromEnv() (cfg VSphereConfig, ok bool) {
 	cfg.Global.Password = os.Getenv("VSPHERE_PASSWORD")
 	cfg.Global.Datacenter = os.Getenv("VSPHERE_DATACENTER")
 	cfg.Network.PublicNetwork = os.Getenv("VSPHERE_PUBLIC_NETWORK")
+	cfg.Global.Datastore = os.Getenv("VSPHERE_DATASTORE")
+	cfg.Disk.SCSIControllerType = os.Getenv("VSPHERE_SCSICONTROLLER_TYPE")
+	cfg.Global.WorkingDir = os.Getenv("VSPHERE_WORKING_DIR")
 	if os.Getenv("VSPHERE_INSECURE") != "" {
 		InsecureFlag, err = strconv.ParseBool(os.Getenv("VSPHERE_INSECURE"))
 	} else {
@@ -65,6 +71,7 @@ user = user
 password = password
 insecure-flag = true
 datacenter = us-west
+vm-uuid = 1234
 `))
 	if err != nil {
 		t.Fatalf("Should succeed when a valid config is provided: %s", err)
@@ -80,6 +87,10 @@ datacenter = us-west
 
 	if cfg.Global.Datacenter != "us-west" {
 		t.Errorf("incorrect datacenter: %s", cfg.Global.Datacenter)
+	}
+
+	if cfg.Global.VMUUID != "1234" {
+		t.Errorf("incorrect vm-uuid: %s", cfg.Global.VMUUID)
 	}
 }
 
@@ -112,11 +123,11 @@ func TestVSphereLogin(t *testing.T) {
 	defer cancel()
 
 	// Create vSphere client
-	c, err := vsphereLogin(vs.cfg, ctx)
+	err = vSphereLogin(ctx, vs)
 	if err != nil {
 		t.Errorf("Failed to create vSpere client: %s", err)
 	}
-	defer c.Logout(ctx)
+	defer vs.client.Logout(ctx)
 }
 
 func TestZones(t *testing.T) {
@@ -128,18 +139,9 @@ func TestZones(t *testing.T) {
 		cfg: &cfg,
 	}
 
-	z, ok := vs.Zones()
-	if !ok {
-		t.Fatalf("Zones() returned false")
-	}
-
-	zone, err := z.GetZone()
-	if err != nil {
-		t.Fatalf("GetZone() returned error: %s", err)
-	}
-
-	if zone.Region != vs.cfg.Global.Datacenter {
-		t.Fatalf("GetZone() returned wrong region (%s)", zone.Region)
+	_, ok := vs.Zones()
+	if ok {
+		t.Fatalf("Zones() returned true")
 	}
 }
 
@@ -159,13 +161,13 @@ func TestInstances(t *testing.T) {
 		t.Fatalf("Instances() returned false")
 	}
 
-	srvs, err := i.List("*")
+	srvs, err := vs.list("*")
 	if err != nil {
-		t.Fatalf("Instances.List() failed: %s", err)
+		t.Fatalf("list() failed: %s", err)
 	}
 
 	if len(srvs) == 0 {
-		t.Fatalf("Instances.List() returned zero servers")
+		t.Fatalf("list() returned zero servers")
 	}
 	t.Logf("Found servers (%d): %s\n", len(srvs), srvs)
 
@@ -175,15 +177,81 @@ func TestInstances(t *testing.T) {
 	}
 	t.Logf("Found ExternalID(%s) = %s\n", srvs[0], externalId)
 
+	nonExistingVM := types.NodeName(rand.String(15))
+	externalId, err = i.ExternalID(nonExistingVM)
+	if err == cloudprovider.InstanceNotFound {
+		t.Logf("VM %s was not found as expected\n", nonExistingVM)
+	} else if err == nil {
+		t.Fatalf("Instances.ExternalID did not fail as expected, VM %s was found", nonExistingVM)
+	} else {
+		t.Fatalf("Instances.ExternalID did not fail as expected, err: %v", err)
+	}
+
 	instanceId, err := i.InstanceID(srvs[0])
 	if err != nil {
 		t.Fatalf("Instances.InstanceID(%s) failed: %s", srvs[0], err)
 	}
 	t.Logf("Found InstanceID(%s) = %s\n", srvs[0], instanceId)
 
+	instanceId, err = i.InstanceID(nonExistingVM)
+	if err == cloudprovider.InstanceNotFound {
+		t.Logf("VM %s was not found as expected\n", nonExistingVM)
+	} else if err == nil {
+		t.Fatalf("Instances.InstanceID did not fail as expected, VM %s was found", nonExistingVM)
+	} else {
+		t.Fatalf("Instances.InstanceID did not fail as expected, err: %v", err)
+	}
+
 	addrs, err := i.NodeAddresses(srvs[0])
 	if err != nil {
 		t.Fatalf("Instances.NodeAddresses(%s) failed: %s", srvs[0], err)
 	}
 	t.Logf("Found NodeAddresses(%s) = %s\n", srvs[0], addrs)
+}
+
+func TestVolumes(t *testing.T) {
+	cfg, ok := configFromEnv()
+	if !ok {
+		t.Skipf("No config found in environment")
+	}
+
+	vs, err := newVSphere(cfg)
+	if err != nil {
+		t.Fatalf("Failed to construct/authenticate vSphere: %s", err)
+	}
+
+	srvs, err := vs.list("*")
+	if err != nil {
+		t.Fatalf("list() failed: %s", err)
+	}
+	if len(srvs) == 0 {
+		t.Fatalf("list() returned zero servers")
+	}
+
+	volumeOptions := &VolumeOptions{
+		CapacityKB: 1 * 1024 * 1024,
+		Tags:       nil,
+		Name:       "kubernetes-test-volume-" + rand.String(10),
+		DiskFormat: "thin"}
+
+	volPath, err := vs.CreateVolume(volumeOptions)
+	if err != nil {
+		t.Fatalf("Cannot create a new VMDK volume: %v", err)
+	}
+
+	_, _, err = vs.AttachDisk(volPath, "")
+	if err != nil {
+		t.Fatalf("Cannot attach volume(%s) to VM(%s): %v", volPath, srvs[0], err)
+	}
+
+	err = vs.DetachDisk(volPath, "")
+	if err != nil {
+		t.Fatalf("Cannot detach disk(%s) from VM(%s): %v", volPath, srvs[0], err)
+	}
+
+	// todo: Deleting a volume after detach currently not working through API or UI (vSphere)
+	// err = vs.DeleteVolume(volPath)
+	// if err != nil {
+	// 	t.Fatalf("Cannot delete VMDK volume %s: %v", volPath, err)
+	// }
 }

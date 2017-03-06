@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2015 The Kubernetes Authors All rights reserved.
+# Copyright 2015 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 ## Contains configuration values for the Openstack cluster
 
 # Stack name
-STACK_NAME=${STACK_NAME:-KubernetesStack}
+STACK_NAME=${STACK_NAME:-kube-stack}
 
 # Keypair for kubernetes stack
 KUBERNETES_KEYPAIR_NAME=${KUBERNETES_KEYPAIR_NAME:-kubernetes_keypair}
@@ -34,6 +34,12 @@ MASTER_FLAVOR=${MASTER_FLAVOR:-m1.medium}
 MINION_FLAVOR=${MINION_FLAVOR:-m1.medium}
 
 EXTERNAL_NETWORK=${EXTERNAL_NETWORK:-public}
+
+LBAAS_VERSION=${LBAAS_VERSION:-}
+
+FIXED_NETWORK_CIDR=${FIXED_NETWORK_CIDR:-10.0.0.0/24}
+SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-10.0.0.0/16}
+CLUSTER_IP_RANGE=${CLUSTER_IP_RANGE:-10.244.0.0/16}
 
 SWIFT_SERVER_URL=${SWIFT_SERVER_URL:-}
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors All rights reserved.
+Copyright 2016 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,29 +19,32 @@ package etcd
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apiserver/pkg/registry/generic"
+	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
 	"k8s.io/kubernetes/federation/apis/federation"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/fields"
-	"k8s.io/kubernetes/pkg/labels"
-	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
-	"k8s.io/kubernetes/pkg/runtime"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
 )
 
 func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
-	etcdStorage, server := registrytest.NewEtcdStorage(t, federation.GroupName)
+	storageConfig, server := registrytest.NewEtcdStorage(t, federation.GroupName)
 	restOptions := generic.RESTOptions{
-		Storage:                 etcdStorage,
+		StorageConfig:           storageConfig,
 		Decorator:               generic.UndecoratedStorage,
-		DeleteCollectionWorkers: 1}
+		DeleteCollectionWorkers: 1,
+		ResourcePrefix:          "clusters",
+	}
 	storage, _ := NewREST(restOptions)
 	return storage, server
 }
 
 func validNewCluster() *federation.Cluster {
 	return &federation.Cluster{
-		ObjectMeta: api.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "foo",
 			Labels: map[string]string{
 				"name": "foo",
@@ -68,11 +71,11 @@ func TestCreate(t *testing.T) {
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Store).ClusterScope()
 	cluster := validNewCluster()
-	cluster.ObjectMeta = api.ObjectMeta{GenerateName: "foo"}
+	cluster.ObjectMeta = metav1.ObjectMeta{GenerateName: "foo"}
 	test.TestCreate(
 		cluster,
 		&federation.Cluster{
-			ObjectMeta: api.ObjectMeta{Name: "-a123-a_"},
+			ObjectMeta: metav1.ObjectMeta{Name: "-a123-a_"},
 		},
 	)
 }
@@ -87,7 +90,9 @@ func TestUpdate(t *testing.T) {
 		// updateFunc
 		func(obj runtime.Object) runtime.Object {
 			object := obj.(*federation.Cluster)
-			object.Spec.Credential = "bar"
+			object.Spec.SecretRef = &api.LocalObjectReference{
+				Name: "bar",
+			}
 			return object
 		},
 	)

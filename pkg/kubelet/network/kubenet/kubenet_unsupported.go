@@ -1,7 +1,7 @@
 // +build !linux
 
 /*
-Copyright 2014 The Kubernetes Authors All rights reserved.
+Copyright 2014 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,11 +30,11 @@ type kubenetNetworkPlugin struct {
 	network.NoopNetworkPlugin
 }
 
-func NewPlugin() network.NetworkPlugin {
+func NewPlugin(networkPluginDir string) network.NetworkPlugin {
 	return &kubenetNetworkPlugin{}
 }
 
-func (plugin *kubenetNetworkPlugin) Init(host network.Host, hairpinMode componentconfig.HairpinMode) error {
+func (plugin *kubenetNetworkPlugin) Init(host network.Host, hairpinMode componentconfig.HairpinMode, nonMasqueradeCIDR string, mtu int) error {
 	return fmt.Errorf("Kubenet is not supported in this build")
 }
 
@@ -42,7 +42,7 @@ func (plugin *kubenetNetworkPlugin) Name() string {
 	return "kubenet"
 }
 
-func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id kubecontainer.ContainerID) error {
+func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id kubecontainer.ContainerID, annotations map[string]string) error {
 	return fmt.Errorf("Kubenet is not supported in this build")
 }
 

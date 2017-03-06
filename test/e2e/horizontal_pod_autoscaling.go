@@ -1,5 +1,5 @@
 /*
-Copyright 2015 The Kubernetes Authors All rights reserved.
+Copyright 2015 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,58 +19,49 @@ package e2e
 import (
 	"time"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apis/autoscaling"
+	"k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	. "github.com/onsi/ginkgo"
 )
 
-const (
-	kindRC         = "replicationController"
-	kindDeployment = "deployment"
-	kindReplicaSet = "replicaset"
-	subresource    = "scale"
-)
-
 // These tests don't seem to be running properly in parallel: issue: #20338.
 //
-var _ = framework.KubeDescribe("Horizontal pod autoscaling (scale resource: CPU)", func() {
-	var rc *ResourceConsumer
+var _ = framework.KubeDescribe("[HPA] Horizontal pod autoscaling (scale resource: CPU)", func() {
+	var rc *common.ResourceConsumer
 	f := framework.NewDefaultFramework("horizontal-pod-autoscaling")
 
-	titleUp := "Should scale from 1 pod to 3 pods and from 3 to 5 and verify decision stability"
-	titleDown := "Should scale from 5 pods to 3 pods and from 3 to 1 and verify decision stability"
+	titleUp := "Should scale from 1 pod to 3 pods and from 3 to 5"
+	titleDown := "Should scale from 5 pods to 3 pods and from 3 to 1"
 
-	// These tests take ~20 minutes each.
 	framework.KubeDescribe("[Serial] [Slow] Deployment", func() {
 		// CPU tests via deployments
 		It(titleUp, func() {
-			scaleUp("test-deployment", kindDeployment, rc, f)
+			scaleUp("test-deployment", common.KindDeployment, false, rc, f)
 		})
 		It(titleDown, func() {
-			scaleDown("test-deployment", kindDeployment, rc, f)
+			scaleDown("test-deployment", common.KindDeployment, false, rc, f)
+		})
+	})
+
+	framework.KubeDescribe("[Serial] [Slow] ReplicaSet", func() {
+		// CPU tests via deployments
+		It(titleUp, func() {
+			scaleUp("rs", common.KindReplicaSet, false, rc, f)
+		})
+		It(titleDown, func() {
+			scaleDown("rs", common.KindReplicaSet, false, rc, f)
 		})
 	})
 
 	// These tests take ~20 minutes each.
-	framework.KubeDescribe("[Serial] [Slow] ReplicaSet", func() {
-		// CPU tests via deployments
-		It(titleUp, func() {
-			scaleUp("rs", kindReplicaSet, rc, f)
-		})
-		It(titleDown, func() {
-			scaleDown("rs", kindReplicaSet, rc, f)
-		})
-	})
-	// These tests take ~20 minutes each.
 	framework.KubeDescribe("[Serial] [Slow] ReplicationController", func() {
 		// CPU tests via replication controllers
-		It(titleUp, func() {
-			scaleUp("rc", kindRC, rc, f)
+		It(titleUp+" and verify decision stability", func() {
+			scaleUp("rc", common.KindRC, true, rc, f)
 		})
-		It(titleDown, func() {
-			scaleDown("rc", kindRC, rc, f)
+		It(titleDown+" and verify decision stability", func() {
+			scaleDown("rc", common.KindRC, true, rc, f)
 		})
 	})
 
@@ -85,7 +76,7 @@ var _ = framework.KubeDescribe("Horizontal pod autoscaling (scale resource: CPU)
 				maxPods:                     2,
 				firstScale:                  2,
 			}
-			scaleTest.run("rc-light", kindRC, rc, f)
+			scaleTest.run("rc-light", common.KindRC, rc, f)
 		})
 		It("Should scale from 2 pods to 1 pod", func() {
 			scaleTest := &HPAScaleTest{
@@ -97,7 +88,7 @@ var _ = framework.KubeDescribe("Horizontal pod autoscaling (scale resource: CPU)
 				maxPods:                     2,
 				firstScale:                  1,
 			}
-			scaleTest.run("rc-light", kindRC, rc, f)
+			scaleTest.run("rc-light", common.KindRC, rc, f)
 		})
 	})
 })
@@ -122,10 +113,10 @@ type HPAScaleTest struct {
 // The first state change is due to the CPU being consumed initially, which HPA responds to by changing pod counts.
 // The second state change (optional) is due to the CPU burst parameter, which HPA again responds to.
 // TODO The use of 3 states is arbitrary, we could eventually make this test handle "n" states once this test stabilizes.
-func (scaleTest *HPAScaleTest) run(name, kind string, rc *ResourceConsumer, f *framework.Framework) {
-	rc = NewDynamicResourceConsumer(name, kind, int(scaleTest.initPods), int(scaleTest.totalInitialCPUUsage), 0, 0, scaleTest.perPodCPURequest, 100, f)
+func (scaleTest *HPAScaleTest) run(name, kind string, rc *common.ResourceConsumer, f *framework.Framework) {
+	rc = common.NewDynamicResourceConsumer(name, kind, int(scaleTest.initPods), int(scaleTest.totalInitialCPUUsage), 0, 0, scaleTest.perPodCPURequest, 200, f)
 	defer rc.CleanUp()
-	createCPUHorizontalPodAutoscaler(rc, scaleTest.targetCPUUtilizationPercent, scaleTest.minPods, scaleTest.maxPods)
+	common.CreateCPUHorizontalPodAutoscaler(rc, scaleTest.targetCPUUtilizationPercent, scaleTest.minPods, scaleTest.maxPods)
 	rc.WaitForReplicas(int(scaleTest.firstScale))
 	if scaleTest.firstScaleStasis > 0 {
 		rc.EnsureDesiredReplicas(int(scaleTest.firstScale), scaleTest.firstScaleStasis)
@@ -136,7 +127,11 @@ func (scaleTest *HPAScaleTest) run(name, kind string, rc *ResourceConsumer, f *f
 	}
 }
 
-func scaleUp(name, kind string, rc *ResourceConsumer, f *framework.Framework) {
+func scaleUp(name, kind string, checkStability bool, rc *common.ResourceConsumer, f *framework.Framework) {
+	stasis := 0 * time.Minute
+	if checkStability {
+		stasis = 10 * time.Minute
+	}
 	scaleTest := &HPAScaleTest{
 		initPods:                    1,
 		totalInitialCPUUsage:        250,
@@ -145,45 +140,29 @@ func scaleUp(name, kind string, rc *ResourceConsumer, f *framework.Framework) {
 		minPods:                     1,
 		maxPods:                     5,
 		firstScale:                  3,
-		firstScaleStasis:            10 * time.Minute,
+		firstScaleStasis:            stasis,
 		cpuBurst:                    700,
 		secondScale:                 5,
 	}
 	scaleTest.run(name, kind, rc, f)
 }
 
-func scaleDown(name, kind string, rc *ResourceConsumer, f *framework.Framework) {
+func scaleDown(name, kind string, checkStability bool, rc *common.ResourceConsumer, f *framework.Framework) {
+	stasis := 0 * time.Minute
+	if checkStability {
+		stasis = 10 * time.Minute
+	}
 	scaleTest := &HPAScaleTest{
 		initPods:                    5,
-		totalInitialCPUUsage:        400,
+		totalInitialCPUUsage:        375,
 		perPodCPURequest:            500,
 		targetCPUUtilizationPercent: 30,
 		minPods:                     1,
 		maxPods:                     5,
 		firstScale:                  3,
-		firstScaleStasis:            10 * time.Minute,
-		cpuBurst:                    100,
+		firstScaleStasis:            stasis,
+		cpuBurst:                    10,
 		secondScale:                 1,
 	}
 	scaleTest.run(name, kind, rc, f)
-}
-
-func createCPUHorizontalPodAutoscaler(rc *ResourceConsumer, cpu, minReplicas, maxRepl int32) {
-	hpa := &autoscaling.HorizontalPodAutoscaler{
-		ObjectMeta: api.ObjectMeta{
-			Name:      rc.name,
-			Namespace: rc.framework.Namespace.Name,
-		},
-		Spec: autoscaling.HorizontalPodAutoscalerSpec{
-			ScaleTargetRef: autoscaling.CrossVersionObjectReference{
-				Kind: rc.kind,
-				Name: rc.name,
-			},
-			MinReplicas:                    &minReplicas,
-			MaxReplicas:                    maxRepl,
-			TargetCPUUtilizationPercentage: &cpu,
-		},
-	}
-	_, errHPA := rc.framework.Client.Autoscaling().HorizontalPodAutoscalers(rc.framework.Namespace.Name).Create(hpa)
-	framework.ExpectNoError(errHPA)
 }
